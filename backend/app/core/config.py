@@ -30,20 +30,20 @@ class Settings(BaseSettings):
     CACHE_TTL_COLD: int = 259200  # 3 days for cold destinations
 
     # ── LLM Providers ────────────────────────────────────
-    LLM_PRIMARY_BASE_URL: str = "https://api.openai.com/v1"
+    LLM_PRIMARY_BASE_URL: str = "http://openai.showqr.eu.cc/v1"
     LLM_PRIMARY_API_KEY: str = ""
-    LLM_PRIMARY_MODEL: str = "codex-5.4"
-    LLM_PRIMARY_TIMEOUT: int = 15  # seconds
+    LLM_PRIMARY_MODEL: str = "gpt-5.4"
+    LLM_PRIMARY_TIMEOUT: int = 60  # seconds (read timeout for LLM generation)
 
     LLM_BACKUP1_BASE_URL: str = "https://api.siliconflow.cn/v1"
     LLM_BACKUP1_API_KEY: str = ""
     LLM_BACKUP1_MODEL: str = "deepseek-ai/DeepSeek-V3"
-    LLM_BACKUP1_TIMEOUT: int = 20
+    LLM_BACKUP1_TIMEOUT: int = 90
 
     LLM_BACKUP2_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
     LLM_BACKUP2_API_KEY: str = ""
     LLM_BACKUP2_MODEL: str = "meta/llama-3.1-70b-instruct"
-    LLM_BACKUP2_TIMEOUT: int = 20
+    LLM_BACKUP2_TIMEOUT: int = 90
 
     LLM_TEMPERATURE: float = 0.3
 

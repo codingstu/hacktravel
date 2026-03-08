@@ -59,6 +59,8 @@ class ItineraryService:
         cached_response = await self.cache.check_idempotency(req.idempotency_key)
         if cached_response:
             logger.info("[%s] Idempotency hit for key=%s", request_id, req.idempotency_key)
+            cached_response.setdefault("source", {})
+            cached_response["source"]["cache_hit"] = True
             return ItineraryGenerateResponse(**cached_response)
 
         # 2. Cache check

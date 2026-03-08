@@ -248,7 +248,14 @@ class LLMGateway:
         }
 
         start = time.monotonic()
-        async with httpx.AsyncClient(timeout=provider.timeout) as client:
+        # Separate connect (10s) and read timeout (per-provider, for LLM generation)
+        timeout_config = httpx.Timeout(
+            connect=10.0,
+            read=float(provider.timeout),
+            write=10.0,
+            pool=10.0,
+        )
+        async with httpx.AsyncClient(timeout=timeout_config) as client:
             resp = await client.post(url, headers=headers, json=payload)
 
         latency_ms = int((time.monotonic() - start) * 1000)
