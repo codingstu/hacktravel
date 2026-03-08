@@ -1,0 +1,1 @@
+"""HackTravel Backend - FastAPI Application"""

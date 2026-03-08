@@ -1,0 +1,144 @@
+"""Pydantic models for itinerary API request and response.
+
+Aligned with implementation-blueprint.md Section 3 API contracts.
+"""
+from __future__ import annotations
+
+import enum
+from typing import Optional
+
+from pydantic import BaseModel, Field, field_validator
+
+
+# ── Enums ────────────────────────────────────────────────
+
+
+class Currency(str, enum.Enum):
+    CNY = "CNY"
+    USD = "USD"
+
+
+class ActivityType(str, enum.Enum):
+    FLIGHT = "flight"
+    TRANSIT = "transit"
+    FOOD = "food"
+    ATTRACTION = "attraction"
+    REST = "rest"
+    SHOPPING = "shopping"
+
+
+class TransportMode(str, enum.Enum):
+    WALK = "walk"
+    BUS = "bus"
+    METRO = "metro"
+    TAXI = "taxi"
+    FLIGHT = "flight"
+
+
+class LLMProvider(str, enum.Enum):
+    CODEX54 = "codex54"
+    SILICONFLOW = "siliconflow"
+    NVIDIA = "nvidia"
+
+
+# ── Shared Sub-Models ────────────────────────────────────
+
+
+class Money(BaseModel):
+    amount: float = Field(..., ge=0, description="金额")
+    currency: Currency = Field(default=Currency.CNY, description="币种")
+
+
+class Place(BaseModel):
+    name: str = Field(..., min_length=1, description="地点名称")
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    address: Optional[str] = None
+
+
+class Transport(BaseModel):
+    mode: TransportMode
+    reference: Optional[str] = Field(default=None, description="航班号/公交线路等")
+
+
+# ── Request Models ───────────────────────────────────────
+
+
+class ItineraryGenerateRequest(BaseModel):
+    """POST /v1/itineraries/generate request body."""
+
+    origin: str = Field(..., min_length=1, max_length=200, description="出发地")
+    destination: str = Field(..., min_length=1, max_length=200, description="目的地")
+    total_hours: int = Field(..., gt=0, le=720, description="总时长（小时）")
+    budget: Money = Field(..., description="预算")
+    tags: list[str] = Field(default_factory=list, max_length=10, description="偏好标签")
+    locale: str = Field(default="zh-CN", pattern=r"^(zh-CN|en-US)$")
+    timezone: str = Field(default="Asia/Shanghai", description="用户时区")
+    app_version: Optional[str] = None
+    idempotency_key: str = Field(..., min_length=8, max_length=64, description="幂等键")
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def deduplicate_tags(cls, v: list[str]) -> list[str]:
+        return list(dict.fromkeys(v))  # preserve order, remove duplicates
+
+
+# ── Response Models ──────────────────────────────────────
+
+
+class ItineraryLeg(BaseModel):
+    """Single leg/segment in the itinerary timeline."""
+
+    index: int = Field(..., ge=0)
+    start_time_local: str = Field(..., description="ISO 8601 本地时间")
+    end_time_local: str = Field(..., description="ISO 8601 本地时间")
+    activity_type: ActivityType
+    place: Place
+    transport: Optional[Transport] = None
+    estimated_cost: Money
+    tips: list[str] = Field(default_factory=list)
+
+
+class ItinerarySummary(BaseModel):
+    total_hours: int
+    estimated_total_cost: Money
+
+
+class MapInfo(BaseModel):
+    google_maps_deeplink: str
+    waypoints_count: int = Field(..., ge=0)
+
+
+class SourceInfo(BaseModel):
+    llm_provider: LLMProvider
+    model_name: str
+    cache_hit: bool = False
+
+
+class PolicyInfo(BaseModel):
+    is_user_generated: bool = True
+    can_share: bool = True
+
+
+class ItineraryGenerateResponse(BaseModel):
+    """POST /v1/itineraries/generate response body."""
+
+    itinerary_id: str
+    title: str
+    summary: ItinerarySummary
+    legs: list[ItineraryLeg]
+    map: MapInfo
+    source: SourceInfo
+    policy: PolicyInfo = Field(default_factory=PolicyInfo)
+
+
+# ── Error Models ─────────────────────────────────────────
+
+
+class ErrorResponse(BaseModel):
+    """Unified error envelope."""
+
+    error_code: str = Field(..., description="HKT 前缀错误码")
+    message: str
+    request_id: Optional[str] = None
+    retry_after: Optional[int] = Field(default=None, description="秒，仅 429 使用")

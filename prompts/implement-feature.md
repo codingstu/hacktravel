@@ -7,9 +7,12 @@
 - 只实现当前功能点，不扩散范围
 - 保持与 [`implementation-blueprint.md`](plans/implementation-blueprint.md) 一致
 - 保持与 [`工程协作与Agent-Skills规范.md`](docs/2026-03-09/工程协作与Agent-Skills规范.md) 一致
+- 先恢复项目记忆，再开始实现，避免因会话切换或上下文过长丢失约束
 
 ## 2. 强制约束
 
+- 实现前必须先读取 [`implementation-blueprint.md`](plans/implementation-blueprint.md)、最近的 `docs/YYYY-MM-DD/*.md`、相关 `agents/*.md`、`skills/*.md`
+- 如果事实源中没有定义，就必须明确标记“未定义”，禁止脑补
 - 匿名优先可用
 - 登录入口默认关闭
 - 主模型为 Codex 5.4

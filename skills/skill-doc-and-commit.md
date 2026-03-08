@@ -16,18 +16,20 @@
 
 ## 3. 操作步骤
 
-1. 新建文档 `docs/YYYY-MM-DD/功能点.md`
-2. 写入目标、范围、关键实现、配置变更、验收结果、风险与回滚
-3. 统计本次变更文件列表
-4. 执行 `git add`
-5. 执行 `git commit -m "feat(scope): 摘要"`
-6. 执行 `git push origin main`
-7. 将 commit hash 回填到功能文档
+1. 先读取 [`implementation-blueprint.md`](plans/implementation-blueprint.md) 与最近的 `docs/YYYY-MM-DD/*.md`，恢复当前项目记忆
+2. 新建文档 `docs/YYYY-MM-DD/功能点.md`
+3. 写入目标、范围、关键实现、配置变更、验收结果、风险与回滚
+4. 统计本次变更文件列表，并写明事实依据来自哪些文件
+5. 执行 `git add`
+6. 执行 `git commit -m "feat(scope): 摘要"`
+7. 执行 `git push origin main`
+8. 将 commit hash 回填到功能文档
 
 ## 4. 验收标准
 
 - 文档路径与命名正确
 - 文档章节完整
+- 文档中已写明事实依据，避免模型自由脑补
 - commit message 符合规范
 - 变更已 push 到 `main`
 - 文档包含 commit hash
