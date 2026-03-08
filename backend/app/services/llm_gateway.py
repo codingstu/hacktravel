@@ -232,7 +232,14 @@ class LLMGateway:
         self, provider: LLMProviderConfig, user_prompt: str
     ) -> LLMResult:
         """Make a single OpenAI-compatible chat completion call."""
-        url = f"{provider.base_url.rstrip('/')}/chat/completions"
+        base_url = provider.base_url.rstrip("/")
+        if base_url.endswith("/chat/completions"):
+            url = base_url
+        elif base_url.endswith("/v1"):
+            url = f"{base_url}/chat/completions"
+        else:
+            url = f"{base_url}/v1/chat/completions"
+
         headers = {
             "Authorization": f"Bearer {provider.api_key}",
             "Content-Type": "application/json",
@@ -240,11 +247,11 @@ class LLMGateway:
         payload = {
             "model": provider.model,
             "temperature": settings.LLM_TEMPERATURE,
+            "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
-            "stop": ["```\n"],  # stop sequence to anchor output
         }
 
         start = time.monotonic()
@@ -255,7 +262,7 @@ class LLMGateway:
             write=10.0,
             pool=10.0,
         )
-        async with httpx.AsyncClient(timeout=timeout_config) as client:
+        async with httpx.AsyncClient(timeout=timeout_config, trust_env=False) as client:
             resp = await client.post(url, headers=headers, json=payload)
 
         latency_ms = int((time.monotonic() - start) * 1000)
@@ -270,6 +277,11 @@ class LLMGateway:
 
         data = resp.json()
         raw_text = data["choices"][0]["message"]["content"]
+        if isinstance(raw_text, list):
+            raw_text = "".join(
+                part.get("text", "") if isinstance(part, dict) else str(part)
+                for part in raw_text
+            )
         parsed = extract_json(raw_text)
 
         return LLMResult(

@@ -1,6 +1,10 @@
 /**
- * Tab2 抄作业 – 社区精选路线瀑布流
- * 蓝图 Section 6.2：瀑布流卡片 + 详情 + "我也要抄"快捷生成
+ * Tab2 抄作业 — 社区精选路线（v3 杂志风重构）
+ *
+ * 设计语言：
+ * - 去掉 emoji 标题，用干净排版 + 色块层次
+ * - 卡片带左侧色条（accent strip）
+ * - 展开详情用紧凑时间轴，不重复圆点
  */
 import React, { useState, useCallback } from 'react';
 import {
@@ -9,20 +13,26 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, FontSize, BorderRadius } from '@/constants/Theme';
+import {
+  Colors,
+  Spacing,
+  FontSize,
+  FontWeight,
+  BorderRadius,
+  Shadow,
+} from '@/constants/Theme';
 import { PRESET_ROUTES } from '@/services/presets';
 import type { CommunityRoute, ItineraryLeg } from '@/services/types';
 
-const ACTIVITY_ICONS: Record<string, string> = {
-  food: '🍜',
-  transit: '🚌',
-  attraction: '🏛️',
-  rest: '🛏️',
-  shopping: '🛍️',
-  flight: '✈️',
+const ACTIVITY_ICON_MAP: Record<string, { name: string; color: string }> = {
+  food: { name: 'restaurant', color: '#E88A3A' },
+  transit: { name: 'bus', color: '#5B8DEF' },
+  attraction: { name: 'camera', color: '#A96FDB' },
+  rest: { name: 'bed', color: '#6BC5A0' },
+  shopping: { name: 'bag-handle', color: '#E86B8A' },
+  flight: { name: 'airplane', color: '#5B8DEF' },
 };
 
 export default function CommunityScreen() {
@@ -37,15 +47,15 @@ export default function CommunityScreen() {
       style={styles.container}
       contentContainerStyle={styles.scroll}
       showsVerticalScrollIndicator={false}>
-      {/* 头部说明 */}
+      {/* 头部 */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>社区精选路线</Text>
-        <Text style={styles.headerSubtitle}>
-          被验证过的极限路线，直接抄作业省心省力
+        <Text style={styles.headerTitle}>精选路线</Text>
+        <Text style={styles.headerSub}>
+          被验证过的极限行程，直接抄作业省心省力
         </Text>
       </View>
 
-      {/* 路线卡片列表 */}
+      {/* 路线卡片 */}
       {PRESET_ROUTES.map(route => (
         <RouteCard
           key={route.id}
@@ -55,11 +65,10 @@ export default function CommunityScreen() {
         />
       ))}
 
-      {/* 底部提示 */}
+      {/* 底部说明 */}
       <View style={styles.footer}>
-        <Ionicons name="sparkles" size={18} color={Colors.textLight} />
         <Text style={styles.footerText}>
-          更多路线持续更新中，你生成的路线也会被收录哦~
+          更多路线持续更新中 · 你生成的路线也会被收录
         </Text>
       </View>
     </ScrollView>
@@ -77,86 +86,100 @@ function RouteCard({
 }) {
   return (
     <View style={styles.card}>
-      {/* 卡片头 */}
-      <TouchableOpacity onPress={onToggle} activeOpacity={0.7}>
-        <View style={styles.cardHeader}>
-          <View style={styles.cardBadge}>
-            <Text style={styles.cardBadgeText}>🔥 热门</Text>
-          </View>
-          <Text style={styles.cardTitle}>{route.title}</Text>
-          <View style={styles.cardMeta}>
-            <MetaChip icon="⏱" text={`${route.total_hours}H`} />
-            <MetaChip icon="💰" text={`¥${route.budget.amount}`} />
-            <MetaChip icon="📋" text={`${route.copy_count}人已抄`} />
-          </View>
-          <View style={styles.tagContainer}>
-            {route.tags.map(tag => (
-              <View key={tag} style={styles.cardTag}>
-                <Text style={styles.cardTagText}>{tag}</Text>
+      {/* accent 色条 */}
+      <View style={styles.accentStrip} />
+
+      <View style={styles.cardBody}>
+        {/* 头部 */}
+        <TouchableOpacity onPress={onToggle} activeOpacity={0.7}>
+          <View style={styles.cardTop}>
+            <View style={styles.badgeRow}>
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>热门</Text>
               </View>
+            </View>
+            <Text style={styles.cardTitle}>{route.title}</Text>
+            <View style={styles.metaRow}>
+              <MetaChip label={`${route.total_hours}H`} />
+              <MetaChip label={`¥${route.budget.amount}`} />
+              <MetaChip label={`${route.copy_count} 人已抄`} />
+            </View>
+            <View style={styles.tagRow}>
+              {route.tags.map(tag => (
+                <View key={tag} style={styles.tag}>
+                  <Text style={styles.tagText}>{tag}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+          <View style={styles.toggleRow}>
+            <Text style={styles.toggleText}>
+              {expanded ? '收起' : '查看完整路线'}
+            </Text>
+            <Ionicons
+              name={expanded ? 'chevron-up' : 'chevron-down'}
+              size={16}
+              color={Colors.textSecondary}
+            />
+          </View>
+        </TouchableOpacity>
+
+        {/* 展开详情 */}
+        {expanded && (
+          <View style={styles.detail}>
+            {route.legs.map((leg, i) => (
+              <LegRow key={i} leg={leg} isLast={i === route.legs.length - 1} />
             ))}
-          </View>
-        </View>
-        <View style={styles.expandHint}>
-          <Ionicons
-            name={expanded ? 'chevron-up' : 'chevron-down'}
-            size={18}
-            color={Colors.textSecondary}
-          />
-          <Text style={styles.expandText}>
-            {expanded ? '收起详情' : '查看完整路线'}
-          </Text>
-        </View>
-      </TouchableOpacity>
 
-      {/* 展开详情 */}
-      {expanded && (
-        <View style={styles.detailSection}>
-          <View style={styles.divider} />
-          {route.legs.map((leg, i) => (
-            <LegItem key={i} leg={leg} />
-          ))}
-
-          {/* 操作按钮 */}
-          <View style={styles.actionRow}>
-            <TouchableOpacity style={styles.copyBtn}>
-              <Ionicons name="copy" size={16} color="#fff" />
-              <Text style={styles.copyBtnText}>  我也要抄</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.shareBtn}>
-              <Ionicons name="share-social" size={16} color={Colors.primary} />
-              <Text style={styles.shareBtnText}>  分享</Text>
-            </TouchableOpacity>
+            {/* 操作 */}
+            <View style={styles.actionRow}>
+              <TouchableOpacity style={styles.copyBtn} activeOpacity={0.85}>
+                <Ionicons name="copy-outline" size={15} color="#fff" />
+                <Text style={styles.copyBtnText}>我也要抄</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.shareBtn} activeOpacity={0.7}>
+                <Ionicons name="share-social-outline" size={15} color={Colors.primary} />
+                <Text style={styles.shareBtnText}>分享</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
-      )}
+        )}
+      </View>
     </View>
   );
 }
 
-function MetaChip({ icon, text }: { icon: string; text: string }) {
+function MetaChip({ label }: { label: string }) {
   return (
     <View style={styles.metaChip}>
-      <Text style={styles.metaChipText}>
-        {icon} {text}
-      </Text>
+      <Text style={styles.metaChipText}>{label}</Text>
     </View>
   );
 }
 
-function LegItem({ leg }: { leg: ItineraryLeg }) {
+function LegRow({ leg, isLast }: { leg: ItineraryLeg; isLast: boolean }) {
   const startTime = leg.start_time_local.slice(11, 16);
-  const icon = ACTIVITY_ICONS[leg.activity_type] || '📍';
+  const iconInfo = ACTIVITY_ICON_MAP[leg.activity_type] || {
+    name: 'location',
+    color: Colors.primary,
+  };
 
   return (
-    <View style={styles.legItem}>
-      <Text style={styles.legTime}>{startTime}</Text>
-      <View style={styles.legDot} />
-      <View style={styles.legInfo}>
-        <Text style={styles.legName}>
-          {icon} {leg.place.name}
-        </Text>
-        <Text style={styles.legCost}>¥{leg.estimated_cost.amount}</Text>
+    <View style={styles.legRow}>
+      {/* 时间轴 */}
+      <View style={styles.legRail}>
+        <View style={[styles.legDot, { backgroundColor: iconInfo.color }]}>
+          <Ionicons name={iconInfo.name as any} size={10} color="#fff" />
+        </View>
+        {!isLast && <View style={styles.legLine} />}
+      </View>
+      {/* 信息 */}
+      <View style={[styles.legInfo, isLast && { paddingBottom: 0 }]}>
+        <View style={styles.legMain}>
+          <Text style={styles.legName}>{leg.place.name}</Text>
+          <Text style={styles.legCost}>¥{leg.estimated_cost.amount}</Text>
+        </View>
+        <Text style={styles.legTime}>{startTime}</Text>
       </View>
     </View>
   );
@@ -170,126 +193,146 @@ const styles = StyleSheet.create({
   scroll: {
     paddingBottom: 100,
   },
+
+  // ── Header
   header: {
-    padding: Spacing.lg,
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.xl,
+    paddingBottom: Spacing.md,
   },
   headerTitle: {
-    fontSize: FontSize.xxl,
-    fontWeight: '700',
+    fontSize: FontSize.title,
+    fontWeight: FontWeight.bold,
     color: Colors.text,
-    marginBottom: Spacing.xs,
+    letterSpacing: -0.5,
   },
-  headerSubtitle: {
+  headerSub: {
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
+    marginTop: Spacing.xs,
   },
+
+  // ── Card
   card: {
-    backgroundColor: Colors.surface,
+    flexDirection: 'row',
     marginHorizontal: Spacing.lg,
     marginBottom: Spacing.md,
     borderRadius: BorderRadius.lg,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
+    backgroundColor: Colors.surface,
     overflow: 'hidden',
+    ...Shadow.md,
   },
-  cardHeader: {
+  accentStrip: {
+    width: 4,
+    backgroundColor: Colors.primary,
+  },
+  cardBody: {
+    flex: 1,
+  },
+  cardTop: {
     padding: Spacing.lg,
   },
-  cardBadge: {
-    backgroundColor: '#FEF3C7',
-    alignSelf: 'flex-start',
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.sm,
+  badgeRow: {
+    flexDirection: 'row',
     marginBottom: Spacing.sm,
   },
-  cardBadgeText: {
+  badge: {
+    backgroundColor: Colors.accent + '20',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.xs,
+  },
+  badgeText: {
     fontSize: FontSize.xs,
-    color: '#92400E',
-    fontWeight: '600',
+    color: '#B07A18',
+    fontWeight: FontWeight.semibold,
   },
   cardTitle: {
     fontSize: FontSize.lg,
-    fontWeight: '700',
+    fontWeight: FontWeight.bold,
     color: Colors.text,
     marginBottom: Spacing.sm,
+    lineHeight: 24,
   },
-  cardMeta: {
+  metaRow: {
     flexDirection: 'row',
+    gap: Spacing.sm,
     marginBottom: Spacing.sm,
   },
   metaChip: {
     backgroundColor: Colors.background,
     paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.sm,
-    marginRight: Spacing.sm,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.xs,
   },
   metaChipText: {
     fontSize: FontSize.xs,
     color: Colors.textSecondary,
+    fontWeight: FontWeight.medium,
   },
-  tagContainer: {
+  tagRow: {
     flexDirection: 'row',
+    gap: Spacing.sm,
   },
-  cardTag: {
-    backgroundColor: Colors.tag.bg,
+  tag: {
+    backgroundColor: Colors.primaryLight,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 2,
-    borderRadius: BorderRadius.sm,
-    marginRight: Spacing.sm,
+    borderRadius: BorderRadius.xs,
   },
-  cardTagText: {
+  tagText: {
     fontSize: FontSize.xs,
     color: Colors.tag.text,
-    fontWeight: '600',
+    fontWeight: FontWeight.semibold,
   },
-  expandHint: {
+  toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: Spacing.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.border,
+    borderTopColor: Colors.divider,
+    gap: 4,
   },
-  expandText: {
+  toggleText: {
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
-    marginLeft: 4,
+    fontWeight: FontWeight.medium,
   },
-  // ── Detail ──
-  detailSection: {
+
+  // ── Detail
+  detail: {
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.lg,
   },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: Colors.border,
-    marginBottom: Spacing.md,
-  },
-  legItem: {
+  legRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: Spacing.sm,
+    alignItems: 'flex-start',
   },
-  legTime: {
-    width: 44,
-    fontSize: FontSize.xs,
-    color: Colors.primary,
-    fontWeight: '600',
+  legRail: {
+    width: 24,
+    alignItems: 'center',
   },
   legDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.timeline,
-    marginHorizontal: Spacing.sm,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  legLine: {
+    width: 1.5,
+    flex: 1,
+    backgroundColor: Colors.divider,
+    marginVertical: 2,
   },
   legInfo: {
     flex: 1,
+    marginLeft: Spacing.sm,
+    paddingBottom: Spacing.md,
+  },
+  legMain: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -297,18 +340,25 @@ const styles = StyleSheet.create({
   legName: {
     fontSize: FontSize.md,
     color: Colors.text,
+    fontWeight: FontWeight.medium,
     flex: 1,
   },
   legCost: {
     fontSize: FontSize.sm,
     color: Colors.primary,
-    fontWeight: '600',
+    fontWeight: FontWeight.semibold,
     marginLeft: Spacing.sm,
   },
-  // ── Actions ──
+  legTime: {
+    fontSize: FontSize.xs,
+    color: Colors.textLight,
+    marginTop: 2,
+  },
+
+  // ── Actions
   actionRow: {
     flexDirection: 'row',
-    marginTop: Spacing.md,
+    marginTop: Spacing.lg,
     gap: Spacing.sm,
   },
   copyBtn: {
@@ -317,12 +367,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Colors.primary,
-    paddingVertical: Spacing.sm + 2,
+    paddingVertical: Spacing.md,
     borderRadius: BorderRadius.sm,
+    gap: Spacing.xs,
+    ...Shadow.colored(Colors.primary),
   },
   copyBtnText: {
     color: '#fff',
-    fontWeight: '700',
+    fontWeight: FontWeight.bold,
     fontSize: FontSize.md,
   },
   shareBtn: {
@@ -330,27 +382,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.tag.bg,
-    paddingVertical: Spacing.sm + 2,
+    backgroundColor: Colors.primaryLight,
+    paddingVertical: Spacing.md,
     borderRadius: BorderRadius.sm,
-    borderWidth: 1,
-    borderColor: Colors.primary + '30',
+    gap: Spacing.xs,
   },
   shareBtnText: {
     color: Colors.primary,
-    fontWeight: '700',
+    fontWeight: FontWeight.bold,
     fontSize: FontSize.md,
   },
-  // ── Footer ──
+
+  // ── Footer
   footer: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: Spacing.xl,
+    paddingVertical: Spacing.xxl,
   },
   footerText: {
     fontSize: FontSize.sm,
     color: Colors.textLight,
-    marginLeft: Spacing.sm,
   },
 });
