@@ -30,20 +30,23 @@ class Settings(BaseSettings):
     CACHE_TTL_COLD: int = 259200  # 3 days for cold destinations
 
     # ── LLM Providers ────────────────────────────────────
-    LLM_PRIMARY_BASE_URL: str = "http://openai.showqr.eu.cc/v1"
+    # Primary: OpenAI-compatible gateway, supports model-level degradation
+    LLM_PRIMARY_BASE_URL: str = "https://openai.showqr.eu.cc/v1"
     LLM_PRIMARY_API_KEY: str = ""
     LLM_PRIMARY_MODEL: str = "gpt-5.4"
-    LLM_PRIMARY_TIMEOUT: int = 60  # seconds (read timeout for LLM generation)
+    # Same-gateway degradation models (comma-separated, tried in order after primary)
+    LLM_PRIMARY_FALLBACK_MODELS: str = "gpt-5.3-codex,gpt-5.2"
+    LLM_PRIMARY_TIMEOUT: int = 60  # per-model read timeout; smart-skip avoids 3×60 cascade
 
     LLM_BACKUP1_BASE_URL: str = "https://api.siliconflow.cn/v1"
     LLM_BACKUP1_API_KEY: str = ""
     LLM_BACKUP1_MODEL: str = "deepseek-ai/DeepSeek-V3"
-    LLM_BACKUP1_TIMEOUT: int = 90
+    LLM_BACKUP1_TIMEOUT: int = 60
 
     LLM_BACKUP2_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
     LLM_BACKUP2_API_KEY: str = ""
     LLM_BACKUP2_MODEL: str = "meta/llama-3.1-70b-instruct"
-    LLM_BACKUP2_TIMEOUT: int = 90
+    LLM_BACKUP2_TIMEOUT: int = 60
 
     LLM_TEMPERATURE: float = 0.3
 

@@ -1,10 +1,12 @@
-"""LLM Gateway – multi-provider routing with automatic failover.
+"""LLM Gateway – multi-provider routing with model-level degradation.
 
-Provider chain: Codex 5.4 (primary) → SiliconFlow (backup1) → NVIDIA NIM (backup2).
-Trigger: timeout / 5xx / connection error.
+Degradation chain (same OpenAI-compatible gateway first):
+  gpt-5.4 → gpt-5.3-codex → gpt-5.2
+Then fallback to external providers:
+  → SiliconFlow DeepSeek-V3 → NVIDIA NIM Llama-3.1-70b
+
+Trigger: timeout / 5xx / connection error / JSON parse failure.
 Final fallback: cached itinerary (handled by caller).
-
-Aligned with blueprint Section 2.4 and Section 4.
 """
 from __future__ import annotations
 
@@ -34,30 +36,66 @@ class LLMProviderConfig:
 
 
 def _build_provider_chain() -> list[LLMProviderConfig]:
-    """Build ordered provider list from settings."""
-    return [
+    """Build ordered provider list with same-gateway model degradation.
+
+    Strategy:
+    1. Primary model (gpt-5.4) via OpenAI-compatible gateway
+    2. Fallback models on SAME gateway (gpt-5.3-codex, gpt-5.2) – same API key/base
+    3. External backup1 (SiliconFlow / DeepSeek-V3)
+    4. External backup2 (NVIDIA NIM / Llama-3.1-70b)
+    """
+    chain: list[LLMProviderConfig] = []
+
+    # ── Primary model ──
+    chain.append(
         LLMProviderConfig(
-            name="codex54",
+            name="primary",
             base_url=settings.LLM_PRIMARY_BASE_URL,
             api_key=settings.LLM_PRIMARY_API_KEY,
             model=settings.LLM_PRIMARY_MODEL,
             timeout=settings.LLM_PRIMARY_TIMEOUT,
-        ),
+        )
+    )
+
+    # ── Same-gateway fallback models ──
+    fallback_models_str = settings.LLM_PRIMARY_FALLBACK_MODELS.strip()
+    if fallback_models_str:
+        for model_name in fallback_models_str.split(","):
+            model_name = model_name.strip()
+            if model_name:
+                chain.append(
+                    LLMProviderConfig(
+                        name=f"primary-{model_name}",
+                        base_url=settings.LLM_PRIMARY_BASE_URL,
+                        api_key=settings.LLM_PRIMARY_API_KEY,
+                        model=model_name,
+                        timeout=settings.LLM_PRIMARY_TIMEOUT,
+                    )
+                )
+
+    # ── External backups ──
+    chain.append(
         LLMProviderConfig(
             name="siliconflow",
             base_url=settings.LLM_BACKUP1_BASE_URL,
             api_key=settings.LLM_BACKUP1_API_KEY,
             model=settings.LLM_BACKUP1_MODEL,
             timeout=settings.LLM_BACKUP1_TIMEOUT,
-        ),
+        )
+    )
+    chain.append(
         LLMProviderConfig(
             name="nvidia",
             base_url=settings.LLM_BACKUP2_BASE_URL,
             api_key=settings.LLM_BACKUP2_API_KEY,
             model=settings.LLM_BACKUP2_MODEL,
             timeout=settings.LLM_BACKUP2_TIMEOUT,
-        ),
-    ]
+        )
+    )
+
+    model_names = [p.model for p in chain]
+    logger.info("LLM provider chain: %s", " → ".join(model_names))
+    return chain
 
 
 # ── Result envelope ──────────────────────────────────────
@@ -88,7 +126,7 @@ SYSTEM_PROMPT = """\
 5. 总花费不得超过用户设定的预算上限
 6. 优先推荐当地人去的平价餐厅和免费景点
 7. activity_type 必须为以下之一: flight, transit, food, attraction, rest, shopping
-8. transport.mode 必须为以下之一: walk, bus, metro, taxi, flight
+8. transport.mode 必须为以下之一: walk, bus, metro, taxi, train, flight
 
 输出 JSON 骨架（严格遵守，不要添加额外字段）:
 ```json
@@ -206,26 +244,64 @@ class LLMGateway:
         )
 
         last_error: Exception | None = None
+        total = len(self.providers)
+        skip_base_url: str | None = None  # if a gateway times out, skip rest on same gateway
 
         for idx, provider in enumerate(self.providers):
             if not provider.api_key:
-                logger.warning("Skipping provider %s – no API key configured", provider.name)
+                logger.warning(
+                    "[%d/%d] Skipping %s (%s) – no API key",
+                    idx + 1, total, provider.name, provider.model,
+                )
                 continue
 
+            # Smart skip: if previous timeout was on same gateway, skip remaining same-gateway models
+            if skip_base_url and provider.base_url == skip_base_url:
+                logger.warning(
+                    "[%d/%d] Skipping %s model=%s – same gateway timed out",
+                    idx + 1, total, provider.name, provider.model,
+                )
+                continue
+
+            logger.info(
+                "[%d/%d] Trying %s model=%s timeout=%ds",
+                idx + 1, total, provider.name, provider.model, provider.timeout,
+            )
             try:
                 result = await self._call_provider(provider, user_prompt)
                 result.switch_count = idx
+                logger.info(
+                    "[%d/%d] Success via %s model=%s latency=%dms",
+                    idx + 1, total, provider.name, provider.model, result.latency_ms,
+                )
                 return result
+            except httpx.ReadTimeout:
+                last_error = httpx.ReadTimeout(
+                    f"ReadTimeout on {provider.name} model={provider.model}"
+                )
+                logger.error(
+                    "[%d/%d] %s model=%s TIMEOUT after %ds – skipping same gateway",
+                    idx + 1, total, provider.name, provider.model, provider.timeout,
+                )
+                skip_base_url = provider.base_url  # mark this gateway as timed-out
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                status = exc.response.status_code
+                logger.error(
+                    "[%d/%d] %s model=%s HTTP %d – trying next model",
+                    idx + 1, total, provider.name, provider.model, status,
+                )
+                # Model-specific error (404/429/503): try next model on same gateway
+                # Don't set skip_base_url — only timeout triggers gateway skip
             except Exception as exc:
                 last_error = exc
                 logger.error(
-                    "Provider %s failed: %s, switching to next",
-                    provider.name,
-                    str(exc)[:200],
+                    "[%d/%d] %s model=%s FAILED: %s – trying next",
+                    idx + 1, total, provider.name, provider.model, str(exc)[:200],
                 )
 
         raise RuntimeError(
-            f"All LLM providers failed. Last error: {last_error}"
+            f"All {total} LLM providers failed. Last error: {last_error}"
         )
 
     async def _call_provider(

@@ -32,11 +32,12 @@ class TransportMode(str, enum.Enum):
     BUS = "bus"
     METRO = "metro"
     TAXI = "taxi"
+    TRAIN = "train"
     FLIGHT = "flight"
 
 
 class LLMProvider(str, enum.Enum):
-    CODEX54 = "codex54"
+    PRIMARY = "primary"
     SILICONFLOW = "siliconflow"
     NVIDIA = "nvidia"
 
@@ -110,7 +111,7 @@ class MapInfo(BaseModel):
 
 
 class SourceInfo(BaseModel):
-    llm_provider: LLMProvider
+    llm_provider: str
     model_name: str
     cache_hit: bool = False
 
