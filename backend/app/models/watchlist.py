@@ -1,0 +1,48 @@
+"""Watchlist / Price Alert models."""
+from __future__ import annotations
+
+from typing import Optional
+
+from pydantic import BaseModel, Field, field_validator
+
+
+class PriceAlertRequest(BaseModel):
+    """创建价格监控请求"""
+    origin: str = Field(..., min_length=1, max_length=200, description="出发城市")
+    destination: str = Field(..., min_length=1, max_length=200, description="目的城市")
+    max_price: float = Field(..., gt=0, description="目标底价（CNY）")
+    email: str = Field(..., description="通知邮箱")
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        v = v.strip().lower()
+        if "@" not in v or "." not in v.split("@")[-1]:
+            raise ValueError("邮箱格式不正确")
+        return v
+
+    @field_validator("origin", "destination")
+    @classmethod
+    def strip_whitespace(cls, v: str) -> str:
+        return v.strip()
+
+
+class PriceAlertResponse(BaseModel):
+    success: bool
+    alert_id: str
+    message: str
+
+
+class PriceAlertItem(BaseModel):
+    alert_id: str
+    origin: str
+    destination: str
+    max_price: float
+    email: str
+    created_at: str
+    status: str = "monitoring"  # monitoring | triggered | expired
+
+
+class PriceAlertListResponse(BaseModel):
+    alerts: list[PriceAlertItem]
+    total: int
