@@ -204,3 +204,16 @@ def test_normalize_dest_case_insensitive():
     assert _normalize_dest("Bangkok") == "曼谷"
     assert _normalize_dest("OKINAWA") == "冲绳"
     assert _normalize_dest("冲绳") == "冲绳"  # already canonical
+
+
+def test_preset_budget_hard_reject():
+    """¥100 vs 新加坡 ¥1500 preset — too far off, must return None (was buggy before)."""
+    result = find_preset("新加坡", 48, 100, "CNY")
+    assert result is None, "Budget ratio 0.93 should hard-reject the preset"
+
+
+def test_preset_budget_within_tolerance():
+    """¥1200 vs 新加坡 ¥1500 preset — ratio 0.2, within ±60%, should match."""
+    result = find_preset("新加坡", 48, 1200, "CNY")
+    assert result is not None
+    assert result.source.is_preset is True

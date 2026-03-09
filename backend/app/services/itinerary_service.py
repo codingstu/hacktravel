@@ -60,7 +60,8 @@ class ItineraryService:
         """
 
         # 0. Preset lookup — instant response for popular routes
-        preset_result = find_preset(
+        #    Skip if caller explicitly wants AI generation (skip_preset=True)
+        preset_result = None if req.skip_preset else find_preset(
             destination=req.destination,
             total_hours=req.total_hours,
             budget_amount=req.budget.amount,

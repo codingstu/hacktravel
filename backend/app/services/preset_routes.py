@@ -1127,25 +1127,29 @@ def _match_score(
 ) -> float:
     """Score a preset against user query. Higher = better match.
 
-    Returns 0.0 if hard filters fail (hours mismatch too large).
+    Hard filters (return 0.0):
+      - Hours mismatch > ±50%
+      - Budget mismatch > ±60%  ← fixes the ¥100 vs ¥1500 bug
+    Bonus scoring stacks on top of base 10.0.
     """
     score = 10.0  # base score for destination match
 
-    # Hours tolerance: ±50%
+    # ── Hard filter 1: hours ──
     p_hours = preset["total_hours"]
     hour_ratio = abs(total_hours - p_hours) / max(p_hours, 1)
     if hour_ratio > 0.5:
-        return 0.0  # too far off
+        return 0.0
     score += (1.0 - hour_ratio) * 5.0  # up to +5
 
-    # Budget tolerance: ±50%
+    # ── Hard filter 2: budget ──
     p_budget = preset["budget_amount"]
-    if budget_amount > 0:
+    if budget_amount > 0 and p_budget > 0:
         budget_ratio = abs(budget_amount - p_budget) / max(p_budget, 1)
-        if budget_ratio <= 0.5:
-            score += (1.0 - budget_ratio) * 3.0  # up to +3
+        if budget_ratio > 0.6:          # ¥100 vs ¥1500 = ratio 0.93 → hard reject
+            return 0.0
+        score += (1.0 - budget_ratio) * 3.0  # up to +3
 
-    # Tag overlap bonus
+    # ── Bonus: tag overlap ──
     preset_tags = set(preset.get("tags", []))
     user_tags = set(tags)
     if preset_tags and user_tags:

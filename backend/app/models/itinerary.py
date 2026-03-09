@@ -77,6 +77,7 @@ class ItineraryGenerateRequest(BaseModel):
     timezone: str = Field(default="Asia/Shanghai", description="用户时区")
     app_version: Optional[str] = None
     idempotency_key: str = Field(..., min_length=8, max_length=64, description="幂等键")
+    skip_preset: bool = Field(default=False, description="强制跳过预置路线，直接调用 AI")
 
     @field_validator("tags", mode="before")
     @classmethod

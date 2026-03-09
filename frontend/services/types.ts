@@ -81,6 +81,8 @@ export interface ItineraryGenerateRequest {
   locale?: string;
   timezone?: string;
   idempotency_key?: string;
+  /** 强制跳过预置路线，直接调用 AI 生成（用于"重新规划"） */
+  skip_preset?: boolean;
 }
 
 export interface ItineraryGenerateResponse {

@@ -19,6 +19,7 @@ import {
   Linking,
   Platform,
   KeyboardAvoidingView,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -73,6 +74,14 @@ export default function GenerateScreen() {
   const [errorMsg, setErrorMsg] = useState('');
   const [loadingQuip, setLoadingQuip] = useState('');
 
+  // ── 可编辑时间轴 ──
+  const [editableLegs, setEditableLegs] = useState<ItineraryLeg[]>([]);
+  const [isEditing, setIsEditing] = useState(false);
+  const [showAddLeg, setShowAddLeg] = useState(false);
+  const [newLegName, setNewLegName] = useState('');
+  const [newLegCost, setNewLegCost] = useState('0');
+  const [newLegType, setNewLegType] = useState<string>('attraction');
+
   const scrollRef = useRef<ScrollView>(null);
 
   const toggleTag = useCallback((tag: string) => {
@@ -105,6 +114,9 @@ export default function GenerateScreen() {
         tags: selectedTags,
       });
       setResult(resp);
+      setEditableLegs(resp.legs);
+      setIsEditing(false);
+      setShowAddLeg(false);
       setViewState('success');
       setTimeout(() => {
         scrollRef.current?.scrollTo({ y: 400, animated: true });
@@ -124,6 +136,85 @@ export default function GenerateScreen() {
   const handleOpenMaps = useCallback((url: string) => {
     Linking.openURL(url);
   }, []);
+
+  // ── 编辑时间轴操作 ──
+  const moveLegUp = useCallback((i: number) => {
+    setEditableLegs(prev => {
+      if (i === 0) return prev;
+      const arr = [...prev];
+      [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]];
+      return arr.map((l, idx) => ({ ...l, index: idx }));
+    });
+  }, []);
+
+  const moveLegDown = useCallback((i: number) => {
+    setEditableLegs(prev => {
+      if (i >= prev.length - 1) return prev;
+      const arr = [...prev];
+      [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]];
+      return arr.map((l, idx) => ({ ...l, index: idx }));
+    });
+  }, []);
+
+  const deleteLeg = useCallback((i: number) => {
+    Alert.alert('删除节点', `确认删除「${editableLegs[i]?.place.name}」?`, [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '删除', style: 'destructive',
+        onPress: () =>
+          setEditableLegs(prev =>
+            prev.filter((_, idx) => idx !== i).map((l, idx) => ({ ...l, index: idx }))
+          ),
+      },
+    ]);
+  }, [editableLegs]);
+
+  const addLeg = useCallback(() => {
+    if (!newLegName.trim()) return;
+    const newLeg: ItineraryLeg = {
+      index: editableLegs.length,
+      start_time_local: '2026-01-01T12:00:00',
+      end_time_local: '2026-01-01T14:00:00',
+      activity_type: newLegType as any,
+      place: { name: newLegName.trim() },
+      estimated_cost: { amount: parseInt(newLegCost, 10) || 0, currency: 'CNY' },
+      tips: [],
+    };
+    setEditableLegs(prev => [...prev, newLeg]);
+    setNewLegName('');
+    setNewLegCost('0');
+    setShowAddLeg(false);
+  }, [editableLegs.length, newLegName, newLegCost, newLegType]);
+
+  // ── 强制 AI 重新规划 ──
+  const handleForceAI = useCallback(async () => {
+    if (!destination.trim()) return;
+    setViewState('loading');
+    setIsEditing(false);
+    setErrorMsg('');
+    setLoadingQuip('AI 正在专属定制，逐分每颗钱都安排上…');
+    try {
+      const resp = await generateItinerary({
+        origin: origin.trim() || '出发地',
+        destination: destination.trim(),
+        total_hours: parseInt(hours, 10) || 48,
+        budget: { amount: parseInt(budget, 10) || 3000, currency: 'CNY' },
+        tags: selectedTags,
+        skip_preset: true,
+      });
+      setResult(resp);
+      setEditableLegs(resp.legs);
+      setShowAddLeg(false);
+      setViewState('success');
+      setTimeout(() => scrollRef.current?.scrollTo({ y: 400, animated: true }), 300);
+    } catch (err) {
+      if (err instanceof ApiError) setErrorMsg(`${err.code}: ${err.message}`);
+      else if (err instanceof Error)
+        setErrorMsg(err.name === 'AbortError' ? '请求超时，请重试' : err.message);
+      else setErrorMsg('未知错误，请稍后重试');
+      setViewState('error');
+    }
+  }, [origin, destination, hours, budget, selectedTags]);
 
   const fillPreset = useCallback((route: CommunityRoute) => {
     setDestination(route.destination);
@@ -308,7 +399,7 @@ export default function GenerateScreen() {
                 />
                 <SummaryPill
                   label="节点"
-                  value={`${result.legs.length}`}
+                  value={`${editableLegs.length}`}
                 />
               </View>
               {result.source.is_preset && (
@@ -331,17 +422,143 @@ export default function GenerateScreen() {
               )}
             </View>
 
+            {/* 预算警告 */}
+            {(() => {
+              const estimated = result.summary.estimated_total_cost.amount;
+              const userBudget = parseInt(budget, 10) || 0;
+              if (userBudget > 0 && estimated > userBudget * 1.2) {
+                return (
+                  <View style={styles.budgetWarnBanner}>
+                    <Ionicons name="warning" size={16} color="#92400E" />
+                    <Text style={styles.budgetWarnText}>
+                      预置路线预估 ¥{estimated}，超出你的预算 ¥{userBudget}，
+                      可手动删除节点或用 AI 重新规划
+                    </Text>
+                  </View>
+                );
+              }
+              return null;
+            })()}
+
+            {/* 操作栏：编辑 + AI 重新规划 */}
+            <View style={styles.resultActions}>
+              <TouchableOpacity
+                style={[styles.actionBtn, isEditing && styles.actionBtnActive]}
+                onPress={() => { setIsEditing(v => !v); setShowAddLeg(false); }}>
+                <Ionicons
+                  name={isEditing ? 'checkmark-circle' : 'create-outline'}
+                  size={16}
+                  color={isEditing ? '#fff' : Colors.primary}
+                />
+                <Text style={[styles.actionBtnText, isEditing && styles.actionBtnTextActive]}>
+                  {isEditing ? '完成编辑' : '编辑路线'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.actionBtnSecondary}
+                onPress={handleForceAI}>
+                <Ionicons name="sparkles" size={16} color="#8B5CF6" />
+                <Text style={styles.actionBtnSecondaryText}>AI 重新规划</Text>
+              </TouchableOpacity>
+            </View>
+
             {/* 时间轴 */}
             <View style={styles.timeline}>
-              {result.legs.map((leg, i) => (
+              {editableLegs.map((leg, i) => (
                 <TimelineLeg
-                  key={i}
+                  key={`${i}-${leg.place.name}`}
                   leg={leg}
                   index={i}
-                  isLast={i === result.legs.length - 1}
+                  isLast={i === editableLegs.length - 1}
+                  isEditing={isEditing}
+                  canMoveUp={i > 0}
+                  canMoveDown={i < editableLegs.length - 1}
+                  onMoveUp={() => moveLegUp(i)}
+                  onMoveDown={() => moveLegDown(i)}
+                  onDelete={() => deleteLeg(i)}
                 />
               ))}
             </View>
+
+            {/* 添加途经点 */}
+            {isEditing && (
+              <View style={styles.addLegSection}>
+                {!showAddLeg ? (
+                  <TouchableOpacity
+                    style={styles.addLegBtn}
+                    onPress={() => setShowAddLeg(true)}>
+                    <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
+                    <Text style={styles.addLegBtnText}>添加途经点</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.addLegForm}>
+                    <Text style={styles.addLegFormTitle}>✏️ 新增途经点</Text>
+                    <TextInput
+                      style={styles.addLegInput}
+                      value={newLegName}
+                      onChangeText={setNewLegName}
+                      placeholder="地点名称（如：筑地市场）"
+                      placeholderTextColor={Colors.textLight}
+                    />
+                    <View style={styles.addLegRow}>
+                      <View style={styles.addLegCostWrap}>
+                        <Text style={styles.addLegLabel}>预计花费 ¥</Text>
+                        <TextInput
+                          style={styles.addLegCostInput}
+                          value={newLegCost}
+                          onChangeText={setNewLegCost}
+                          keyboardType="number-pad"
+                          placeholder="0"
+                          placeholderTextColor={Colors.textLight}
+                        />
+                      </View>
+                    </View>
+                    {/* 活动类型选择 */}
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={{ marginBottom: Spacing.md }}>
+                      {[
+                        { key: 'attraction', label: '🏛 景点' },
+                        { key: 'food', label: '🍜 美食' },
+                        { key: 'transit', label: '🚌 交通' },
+                        { key: 'shopping', label: '🛍 购物' },
+                        { key: 'rest', label: '🏨 住宿' },
+                        { key: 'flight', label: '✈️ 航班' },
+                      ].map(t => (
+                        <TouchableOpacity
+                          key={t.key}
+                          style={[
+                            styles.typeChip,
+                            newLegType === t.key && styles.typeChipActive,
+                          ]}
+                          onPress={() => setNewLegType(t.key)}>
+                          <Text
+                            style={[
+                              styles.typeChipText,
+                              newLegType === t.key && styles.typeChipTextActive,
+                            ]}>
+                            {t.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                    <View style={styles.addLegFormBtns}>
+                      <TouchableOpacity
+                        style={styles.addLegConfirm}
+                        onPress={addLeg}>
+                        <Text style={styles.addLegConfirmText}>确认添加</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.addLegCancel}
+                        onPress={() => setShowAddLeg(false)}>
+                        <Text style={styles.addLegCancelText}>取消</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
 
             {/* 导航 CTA */}
             <TouchableOpacity
@@ -408,10 +625,22 @@ function TimelineLeg({
   leg,
   index,
   isLast,
+  isEditing = false,
+  canMoveUp = false,
+  canMoveDown = false,
+  onMoveUp,
+  onMoveDown,
+  onDelete,
 }: {
   leg: ItineraryLeg;
   index: number;
   isLast: boolean;
+  isEditing?: boolean;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  onDelete?: () => void;
 }) {
   const startTime = leg.start_time_local.slice(11, 16);
   const endTime = leg.end_time_local.slice(11, 16);
@@ -436,7 +665,26 @@ function TimelineLeg({
           <Text style={styles.legTime}>
             {startTime} – {endTime}
           </Text>
-          <Text style={styles.legCost}>¥{leg.estimated_cost.amount}</Text>
+          <View style={styles.legCardRight}>
+            <Text style={styles.legCost}>¥{leg.estimated_cost.amount}</Text>
+            {isEditing && (
+              <View style={styles.legEditBtns}>
+                <TouchableOpacity
+                  style={[styles.legEditBtn, !canMoveUp && styles.legEditBtnDisabled]}
+                  onPress={canMoveUp ? onMoveUp : undefined}>
+                  <Ionicons name="chevron-up" size={14} color={canMoveUp ? Colors.primary : Colors.textLight} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.legEditBtn, !canMoveDown && styles.legEditBtnDisabled]}
+                  onPress={canMoveDown ? onMoveDown : undefined}>
+                  <Ionicons name="chevron-down" size={14} color={canMoveDown ? Colors.primary : Colors.textLight} />
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.legEditBtn, styles.legDeleteBtn]} onPress={onDelete}>
+                  <Ionicons name="trash-outline" size={14} color={Colors.error} />
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
         </View>
         <Text style={styles.legPlace}>{leg.place.name}</Text>
         {leg.transport && (
@@ -815,6 +1063,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 6,
   },
+  legCardRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  legEditBtns: {
+    flexDirection: 'row',
+    gap: 2,
+    marginLeft: Spacing.xs,
+  },
+  legEditBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: BorderRadius.xs,
+    backgroundColor: Colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  legEditBtnDisabled: {
+    opacity: 0.35,
+  },
+  legDeleteBtn: {
+    backgroundColor: '#FEF2F2',
+  },
   legTime: {
     color: Colors.textSecondary,
     fontWeight: FontWeight.semibold,
@@ -865,6 +1137,188 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: FontSize.md,
     fontWeight: FontWeight.bold,
+  },
+
+  // ── Budget warning
+  budgetWarnBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    gap: Spacing.sm,
+  },
+  budgetWarnText: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: '#92400E',
+    lineHeight: 20,
+  },
+
+  // ── Result action bar
+  resultActions: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.lg,
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    backgroundColor: Colors.surface,
+  },
+  actionBtnActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  actionBtnText: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.primary,
+  },
+  actionBtnTextActive: {
+    color: '#fff',
+  },
+  actionBtnSecondary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+    borderColor: '#8B5CF6',
+    backgroundColor: Colors.surface,
+  },
+  actionBtnSecondaryText: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: '#8B5CF6',
+  },
+
+  // ── Add Leg
+  addLegSection: {
+    marginBottom: Spacing.lg,
+  },
+  addLegBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    borderStyle: 'dashed',
+  },
+  addLegBtnText: {
+    color: Colors.primary,
+    fontWeight: FontWeight.semibold,
+    fontSize: FontSize.md,
+  },
+  addLegForm: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.xl,
+    ...Shadow.md,
+  },
+  addLegFormTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+    color: Colors.text,
+    marginBottom: Spacing.md,
+  },
+  addLegInput: {
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    fontSize: FontSize.md,
+    color: Colors.text,
+    marginBottom: Spacing.md,
+  },
+  addLegRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  addLegCostWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  addLegLabel: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    fontWeight: FontWeight.semibold,
+  },
+  addLegCostInput: {
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.xs,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.bold,
+    color: Colors.text,
+    width: 80,
+  },
+  typeChip: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.background,
+    marginRight: Spacing.sm,
+  },
+  typeChipActive: {
+    backgroundColor: Colors.primaryLight,
+  },
+  typeChipText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    fontWeight: FontWeight.medium,
+  },
+  typeChipTextActive: {
+    color: Colors.primary,
+    fontWeight: FontWeight.bold,
+  },
+  addLegFormBtns: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
+  addLegConfirm: {
+    flex: 1,
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
+  },
+  addLegConfirmText: {
+    color: '#fff',
+    fontWeight: FontWeight.bold,
+    fontSize: FontSize.md,
+  },
+  addLegCancel: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
+  },
+  addLegCancelText: {
+    color: Colors.textSecondary,
+    fontWeight: FontWeight.semibold,
+    fontSize: FontSize.md,
   },
 
   // ── Presets
