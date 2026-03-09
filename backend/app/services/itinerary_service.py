@@ -34,6 +34,7 @@ from app.models.itinerary import (
 )
 from app.services.cache_service import CacheService, cache_service
 from app.services.llm_gateway import LLMGateway, llm_gateway
+from app.services.preset_routes import find_preset
 from app.utils.google_maps import build_google_maps_url
 
 logger = logging.getLogger(__name__)
@@ -53,7 +54,29 @@ class ItineraryService:
     async def generate(
         self, req: ItineraryGenerateRequest, request_id: str
     ) -> ItineraryGenerateResponse:
-        """Full generation pipeline."""
+        """Full generation pipeline.
+
+        Priority: preset (0ms) → idempotency → cache → LLM (10-60s)
+        """
+
+        # 0. Preset lookup — instant response for popular routes
+        preset_result = find_preset(
+            destination=req.destination,
+            total_hours=req.total_hours,
+            budget_amount=req.budget.amount,
+            budget_currency=req.budget.currency.value,
+            tags=req.tags,
+        )
+        if preset_result:
+            logger.info(
+                "[%s] Preset hit for dest=%s hours=%d",
+                request_id, req.destination, req.total_hours,
+            )
+            # Still write idempotency so repeated clicks don't re-process
+            await self.cache.set_idempotency(
+                req.idempotency_key, preset_result.model_dump()
+            )
+            return preset_result
 
         # 1. Idempotency check
         cached_response = await self.cache.check_idempotency(req.idempotency_key)

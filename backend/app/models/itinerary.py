@@ -114,6 +114,7 @@ class SourceInfo(BaseModel):
     llm_provider: str
     model_name: str
     cache_hit: bool = False
+    is_preset: bool = False
 
 
 class PolicyInfo(BaseModel):

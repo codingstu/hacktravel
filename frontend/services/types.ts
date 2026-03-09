@@ -64,6 +64,7 @@ export interface SourceInfo {
   llm_provider: string;
   model_name: string;
   cache_hit: boolean;
+  is_preset?: boolean;
 }
 
 export interface PolicyInfo {

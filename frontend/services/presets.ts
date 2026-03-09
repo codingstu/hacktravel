@@ -170,8 +170,9 @@ export const TRAVEL_TAGS = [
   { key: '打卡狂魔', emoji: '📸' },
 ] as const;
 
-/** 热门目的地快捷选项 */
+/** 热门目的地快捷选项 — 与后端 preset_routes.py 同步 */
 export const HOT_DESTINATIONS = [
   '冲绳', '胡志明市', '曼谷', '新加坡', '清迈',
-  '吉隆坡', '岘港', '马尼拉', '雅加达', '首尔',
+  '吉隆坡', '岘港', '东京', '大阪', '首尔',
+  '巴厘岛', '香港', '台北', '澳门', '京都',
 ] as const;

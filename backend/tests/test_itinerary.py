@@ -12,6 +12,12 @@ from app.models.itinerary import (
 from app.utils.google_maps import build_google_maps_url, build_google_maps_urls
 from app.services.llm_gateway import extract_json
 from app.services.cache_service import CacheService
+from app.services.preset_routes import (
+    find_preset,
+    get_all_preset_destinations,
+    get_preset_count,
+    _normalize_dest,
+)
 
 
 # ── Model validation tests ───────────────────────────────
@@ -127,3 +133,74 @@ def test_query_hash_different_destinations():
     h1 = CacheService.build_query_hash("冲绳", 48, 3000, "CNY", [])
     h2 = CacheService.build_query_hash("曼谷", 48, 3000, "CNY", [])
     assert h1 != h2
+
+
+# ── Preset routes tests ──────────────────────────────────
+
+
+def test_preset_exact_match_okinawa():
+    """Exact destination + hours should return a preset."""
+    result = find_preset("冲绳", 48, 3000, "CNY", ["疯狂暴走"])
+    assert result is not None
+    assert result.source.is_preset is True
+    assert result.source.llm_provider == "preset"
+    assert len(result.legs) > 0
+
+
+def test_preset_exact_match_bangkok():
+    result = find_preset("曼谷", 24, 200, "CNY", ["极限吃货"])
+    assert result is not None
+    assert "曼谷" in result.title
+    assert result.source.is_preset is True
+
+
+def test_preset_alias_match():
+    """English alias should resolve to canonical Chinese name."""
+    result = find_preset("okinawa", 48, 3000, "CNY")
+    assert result is not None
+    assert result.source.is_preset is True
+
+
+def test_preset_alias_saigon():
+    result = find_preset("saigon", 48, 350, "CNY")
+    assert result is not None
+
+
+def test_preset_no_match_unknown_city():
+    """Unknown destination should return None."""
+    result = find_preset("北极", 48, 3000, "CNY")
+    assert result is None
+
+
+def test_preset_hours_tolerance():
+    """36H query should still match 48H okinawa preset (within 50%)."""
+    result = find_preset("冲绳", 36, 3000, "CNY")
+    assert result is not None
+
+
+def test_preset_hours_too_far():
+    """12H query should NOT match 48H preset (>50% off)."""
+    result = find_preset("冲绳", 12, 3000, "CNY")
+    assert result is None
+
+
+def test_preset_response_has_maps():
+    result = find_preset("东京", 48, 3500, "CNY")
+    assert result is not None
+    assert result.map.google_maps_deeplink != ""
+    assert result.map.waypoints_count > 0
+
+
+def test_preset_all_destinations():
+    dests = get_all_preset_destinations()
+    assert len(dests) >= 10  # we have at least 10 destinations
+
+
+def test_preset_count():
+    assert get_preset_count() >= 15
+
+
+def test_normalize_dest_case_insensitive():
+    assert _normalize_dest("Bangkok") == "曼谷"
+    assert _normalize_dest("OKINAWA") == "冲绳"
+    assert _normalize_dest("冲绳") == "冲绳"  # already canonical

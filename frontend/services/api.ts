@@ -22,7 +22,7 @@ const getBaseUrl = (): string => {
 };
 
 const BASE_URL = getBaseUrl();
-const TIMEOUT_MS = 200_000; // 后端降级链最长约 180s (60s × 3 providers)
+const TIMEOUT_MS = 45_000; // 对齐新的快速失败降级链，避免前端长时间无响应
 
 class ApiError extends Error {
   code: string;

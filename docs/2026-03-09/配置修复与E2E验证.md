@@ -20,17 +20,23 @@
 **原因**：宿主机 8000 端口已被 `grok2api` 容器占用。
 **依据**：`docker ps` 和 `lsof -i :8000` 确认冲突。
 
-### 2.2 LLM_PRIMARY_BASE_URL 调用链修复
+### 2.2 `openai.showqr.eu.cc` 调用慢根因排查与修复
 
 | 项目 | 排查结论 | 当前状态 |
 |------|----------|----------|
-| `LLM_PRIMARY_BASE_URL` | `https://openai.showqr.eu.cc/v1` 本身可用 | 保持不变 |
-| OpenAI Compatible 请求地址拼装 | 需要兼容 `base_url` / `base_url/v1` / `base_url/chat/completions` | 已在 [`backend/app/services/llm_gateway.py`](../../backend/app/services/llm_gateway.py) 修复 |
-| 返回 JSON 约束 | 仅靠 prompt + `stop` 不稳定 | 改为 `response_format={"type":"json_object"}` |
-| HTTP 客户端环境代理 | 可能受系统代理变量影响 | 已显式 `trust_env=False` |
+| 网络 / DNS / TLS | 不是瓶颈；直连探测约 `110ms` 返回 `404`，链路建立正常 | 已确认不是网络层慢 |
+| 极简 JSON 请求 | `gpt-5.4` 仅返回 `{"ok":true}` 约 `4.4s` | 说明网关与模型基本可用 |
+| 原旅行规划大 prompt | 实测约 `101s`，`completion_tokens=5429`、`reasoning_tokens=2225` | 已确认慢点在模型生成阶段 |
+| 紧凑 prompt + `reasoning_effort=low` + completion cap | 实测约 `35.8s`，`completion_tokens=1813`、`reasoning_tokens=359` | 已明显改善 |
+| OpenAI Compatible 调用细节 | URL 拼装、`response_format`、`trust_env=False` 仍需保留 | 已继续沿用 |
 
-**原因**：这次问题不在 [`backend/.env`](../../backend/.env) 的主地址本身，而在 [`backend/app/services/llm_gateway.py`](../../backend/app/services/llm_gateway.py) 对 OpenAI Compatible 接口的调用细节不够稳，包括 URL 组装、JSON 输出约束和 HTTP 客户端环境继承。
-**依据**：直接请求 `https://openai.showqr.eu.cc/v1/chat/completions` 返回 `200`；修复后通过项目内 [`LLMGateway._call_provider()`](../../backend/app/services/llm_gateway.py:231) 与 [`LLMGateway.generate()`](../../backend/app/services/llm_gateway.py:185) 已可稳定命中主供应商 `codex54`。
+**根因**：[`openai.showqr.eu.cc`](../../backend/app/core/config.py) 慢的主因不是网络、DNS、TLS 或代理，而是 [`backend/app/services/llm_gateway.py`](../../backend/app/services/llm_gateway.py) 里给 [`gpt-5.4`](../../backend/app/core/config.py) 的旅行规划 prompt 过长、输出骨架过大，导致模型生成了超长 JSON，并伴随大量 reasoning token，最终把耗时拉高到 100s 级别。
+
+**修复动作**：
+- 在 [`backend/app/core/config.py`](../../backend/app/core/config.py) 新增主路由约束参数：`LLM_PRIMARY_REASONING_EFFORT`、`LLM_PRIMARY_MAX_COMPLETION_TOKENS`、`LLM_PRIMARY_MAX_LEGS`、`LLM_PRIMARY_MAX_TIPS_PER_LEG`
+- 在 [`backend/app/services/llm_gateway.py`](../../backend/app/services/llm_gateway.py) 为 primary provider 注入 `reasoning_effort=low` 与 `max_completion_tokens`
+- 重写 [`SYSTEM_PROMPT`](../../backend/app/services/llm_gateway.py:132) 与 [`build_user_prompt()`](../../backend/app/services/llm_gateway.py:167)，去掉冗长 JSON 骨架，改成紧凑字段约束
+- 在 [`backend/.env.example`](../../backend/.env.example) 同步新的主路由参数模板
 
 ### 2.3 模型名称
 
@@ -105,9 +111,10 @@ POST /v1/itineraries/generate
 
 结果：
 - 历史一次验证：`primary(timeout) → siliconflow(timeout) → nvidia(成功)`
-- 本次针对 [`LLM_PRIMARY_BASE_URL`](../../backend/.env) 的专项排查中，已确认主供应商直连可用
-- 修复 [`backend/app/services/llm_gateway.py`](../../backend/app/services/llm_gateway.py) 后，最小链路验证结果为：`provider: codex54`、`model: gpt-5.4`、`switch_count: 0`
-- 返回结果可正常解析出 `title`、`summary`、`legs`
+- 本次已将默认容灾顺序调整为：`primary(showqr fast-fail) → nvidia/llama-3.1-70b → nvidia/nemotron-4-340b → siliconflow/qwen2.5-72b → siliconflow/deepseek-v3 → siliconflow/deepseek-r1`
+- 调整原因：[`openai.showqr.eu.cc`](../../backend/app/core/config.py) 当前链路偏慢，且深度思考类 [`DeepSeek-R1`](../../backend/app/core/config.py) 容易显著拉长响应时间，因此放到最后兜底
+- 修复 [`backend/app/services/llm_gateway.py`](../../backend/app/services/llm_gateway.py) 后，网关已支持“按供应商 + 按模型”双层降级，并可避免在慢网关上继续级联重试
+- 返回结果仍要求可正常解析出 `title`、`summary`、`legs`
 
 ### 4.3 查询缓存命中
 
@@ -123,20 +130,21 @@ POST /v1/itineraries/generate
 
 | 风险 | 影响 | 缓解措施 |
 |------|------|----------|
-| Primary 供应商虽已恢复可用，但完整 itinerary 生成仍可能接近 50s | 接口响应偏慢，影响体验 | 后续可减少 prompt 长度、限制输出规模，或增加熔断/降级策略 |
+| `openai.showqr.eu.cc` 仍可能出现慢响应 | 首次命中主路由时接口体验不稳定 | 已缩短主路由超时并关闭同网关默认回退，超时后优先切 NVIDIA NIM |
+| `DeepSeek-R1` 深度思考链路耗时偏高 | 极端情况下总链路耗时增长 | 已将 [`DeepSeek-R1`](../../backend/app/core/config.py) 降为硅基流动最后兜底模型 |
 | `.env` 含真实 API 密钥 | 泄露风险 | 已加入 `.gitignore`；CI 使用环境变量注入 |
 | Git remote 未配置 | 无法 push | 用户就绪时执行 `git remote add origin <url>` |
 
 ## 6. 提交信息
 
 ```
-fix(llm): 修复 OpenAI Compatible 主供应商调用稳定性
+fix(llm): 优化多供应商模型降级顺序与超时策略
 
-- llm_gateway: 兼容多种 base_url 形态，避免 `/v1` / `/chat/completions` 拼装错误
-- llm_gateway: 使用 `response_format={"type":"json_object"}` 约束 JSON 输出
-- llm_gateway: `httpx.AsyncClient(..., trust_env=False)`，避免环境代理干扰
-- llm_gateway: 兼容 `message.content` 数组片段解析
-- 验证主供应商 `codex54 / gpt-5.4` 最小链路调用成功
+- config: 缩短 `showqr` 主路由超时，并禁用默认同网关级联回退
+- config: 将 NVIDIA NIM 调整为第一备选，模型顺序为 Llama 3.1 70B → Nemotron-4 340B
+- config: 将 SiliconFlow 调整为第二备选，模型顺序为 Qwen2.5-72B → DeepSeek-V3 → DeepSeek-R1
+- llm_gateway: 支持按供应商配置多模型链式降级，减少慢模型优先命中的概率
+- env.example: 同步新的模型优先级、超时与回退配置模板
 ```
 
 Commit hash: `502a81b`

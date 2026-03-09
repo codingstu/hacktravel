@@ -98,9 +98,9 @@
 - 错误码对齐
 
 2) skill-llm-gateway-failover
-- Codex 5.4 主路由
-- 硅基流动与 NVIDIA NIM 自动切换
-- 超时与 5xx 故障回退
+- showqr / gpt-5.4 主路由（快速失败）
+- NVIDIA NIM 第一备选，硅基流动第二备选
+- 超时、5xx、连接异常与 JSON 解析失败自动回退
 
 3) skill-expo-tab-feature
 - Expo Router 新增页面
@@ -181,8 +181,8 @@
 以下关键约束不得偏离：
 
 - 匿名优先可用，登录入口默认关闭
-- 模型主路由为 Codex 5.4
-- 自动切换备路由为硅基流动和 NVIDIA NIM
+- 模型主路由为 showqr / gpt-5.4，超时后快速切出
+- 自动切换备路由顺序为 NVIDIA NIM → 硅基流动
 - 主备全失败时回退缓存路线
 - 首发必须包含三 Tab 与地图导入能力
 

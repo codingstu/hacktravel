@@ -30,25 +30,33 @@ class Settings(BaseSettings):
     CACHE_TTL_COLD: int = 259200  # 3 days for cold destinations
 
     # ── LLM Providers ────────────────────────────────────
-    # Primary: OpenAI-compatible gateway, supports model-level degradation
+    # Primary: OpenAI-compatible gateway. Root cause investigation shows network is fast,
+    # but generation becomes slow when prompt/output are too large, so cap reasoning/output.
     LLM_PRIMARY_BASE_URL: str = "https://openai.showqr.eu.cc/v1"
     LLM_PRIMARY_API_KEY: str = ""
     LLM_PRIMARY_MODEL: str = "gpt-5.4"
-    # Same-gateway degradation models (comma-separated, tried in order after primary)
-    LLM_PRIMARY_FALLBACK_MODELS: str = "gpt-5.3-codex,gpt-5.2"
-    LLM_PRIMARY_TIMEOUT: int = 60  # per-model read timeout; smart-skip avoids 3×60 cascade
+    LLM_PRIMARY_FALLBACK_MODELS: str = ""
+    LLM_PRIMARY_TIMEOUT: int = 45
+    LLM_PRIMARY_REASONING_EFFORT: str = "low"
+    LLM_PRIMARY_MAX_COMPLETION_TOKENS: int = 900
+    LLM_PRIMARY_MAX_LEGS: int = 8
+    LLM_PRIMARY_MAX_TIPS_PER_LEG: int = 2
 
-    LLM_BACKUP1_BASE_URL: str = "https://api.siliconflow.cn/v1"
+    # First backup: NVIDIA NIM, prioritizing speed/quality balance then stronger reasoning.
+    LLM_BACKUP1_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
     LLM_BACKUP1_API_KEY: str = ""
-    LLM_BACKUP1_MODEL: str = "deepseek-ai/DeepSeek-V3"
-    LLM_BACKUP1_TIMEOUT: int = 60
+    LLM_BACKUP1_MODEL: str = "meta/llama-3.1-70b-instruct"
+    LLM_BACKUP1_FALLBACK_MODELS: str = "nvidia/nemotron-4-340b-instruct"
+    LLM_BACKUP1_TIMEOUT: int = 22
 
-    LLM_BACKUP2_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
+    # Second backup: SiliconFlow, prioritizing fast instruct models before DeepSeek reasoning.
+    LLM_BACKUP2_BASE_URL: str = "https://api.siliconflow.cn/v1"
     LLM_BACKUP2_API_KEY: str = ""
-    LLM_BACKUP2_MODEL: str = "meta/llama-3.1-70b-instruct"
-    LLM_BACKUP2_TIMEOUT: int = 60
+    LLM_BACKUP2_MODEL: str = "Qwen/Qwen2.5-72B-Instruct"
+    LLM_BACKUP2_FALLBACK_MODELS: str = "deepseek-ai/DeepSeek-V3,deepseek-ai/DeepSeek-R1"
+    LLM_BACKUP2_TIMEOUT: int = 28
 
-    LLM_TEMPERATURE: float = 0.3
+    LLM_TEMPERATURE: float = 0.2
 
     # ── Rate Limiting ────────────────────────────────────
     RATE_LIMIT_ANONYMOUS: int = 10  # per hour

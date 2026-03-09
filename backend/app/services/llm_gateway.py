@@ -1,9 +1,9 @@
-"""LLM Gateway – multi-provider routing with model-level degradation.
+"""LLM Gateway – multi-provider routing with provider/model-level degradation.
 
-Degradation chain (same OpenAI-compatible gateway first):
-  gpt-5.4 → gpt-5.3-codex → gpt-5.2
-Then fallback to external providers:
-  → SiliconFlow DeepSeek-V3 → NVIDIA NIM Llama-3.1-70b
+Optimized degradation chain:
+  1. OpenAI-compatible gateway: gpt-5.4 (short timeout, fail fast)
+  2. NVIDIA NIM: Llama-3.1-70B-Instruct → Nemotron-4-340B-Instruct
+  3. SiliconFlow: Qwen2.5-72B-Instruct → DeepSeek-V3 → DeepSeek-R1
 
 Trigger: timeout / 5xx / connection error / JSON parse failure.
 Final fallback: cached itinerary (handled by caller).
@@ -33,67 +33,89 @@ class LLMProviderConfig:
     api_key: str
     model: str
     timeout: int
+    reasoning_effort: str | None = None
+    max_completion_tokens: int | None = None
+
+
+def _split_models(value: str) -> list[str]:
+    return [model.strip() for model in value.split(",") if model.strip()]
+
+
+
+def _append_provider_models(
+    chain: list[LLMProviderConfig],
+    *,
+    provider_name: str,
+    base_url: str,
+    api_key: str,
+    primary_model: str,
+    fallback_models: str,
+    timeout: int,
+    reasoning_effort: str | None = None,
+    max_completion_tokens: int | None = None,
+) -> None:
+    models = [primary_model.strip(), *_split_models(fallback_models)]
+    seen: set[str] = set()
+
+    for index, model_name in enumerate(models):
+        if not model_name or model_name in seen:
+            continue
+        seen.add(model_name)
+        chain.append(
+            LLMProviderConfig(
+                name=provider_name if index == 0 else f"{provider_name}-{index + 1}",
+                base_url=base_url,
+                api_key=api_key,
+                model=model_name,
+                timeout=timeout,
+                reasoning_effort=reasoning_effort,
+                max_completion_tokens=max_completion_tokens,
+            )
+        )
+
 
 
 def _build_provider_chain() -> list[LLMProviderConfig]:
-    """Build ordered provider list with same-gateway model degradation.
+    """Build ordered provider list with provider/model degradation.
 
     Strategy:
-    1. Primary model (gpt-5.4) via OpenAI-compatible gateway
-    2. Fallback models on SAME gateway (gpt-5.3-codex, gpt-5.2) – same API key/base
-    3. External backup1 (SiliconFlow / DeepSeek-V3)
-    4. External backup2 (NVIDIA NIM / Llama-3.1-70b)
+    1. OpenAI-compatible primary gateway only keeps the main model and fails fast
+    2. NVIDIA NIM is the first external fallback, with fast/strong models in order
+    3. SiliconFlow is the second external fallback, avoiding slow reasoning-first models first
     """
     chain: list[LLMProviderConfig] = []
 
-    # ── Primary model ──
-    chain.append(
-        LLMProviderConfig(
-            name="primary",
-            base_url=settings.LLM_PRIMARY_BASE_URL,
-            api_key=settings.LLM_PRIMARY_API_KEY,
-            model=settings.LLM_PRIMARY_MODEL,
-            timeout=settings.LLM_PRIMARY_TIMEOUT,
-        )
+    _append_provider_models(
+        chain,
+        provider_name="primary",
+        base_url=settings.LLM_PRIMARY_BASE_URL,
+        api_key=settings.LLM_PRIMARY_API_KEY,
+        primary_model=settings.LLM_PRIMARY_MODEL,
+        fallback_models=settings.LLM_PRIMARY_FALLBACK_MODELS,
+        timeout=settings.LLM_PRIMARY_TIMEOUT,
+        reasoning_effort=settings.LLM_PRIMARY_REASONING_EFFORT,
+        max_completion_tokens=settings.LLM_PRIMARY_MAX_COMPLETION_TOKENS,
+    )
+    _append_provider_models(
+        chain,
+        provider_name="nvidia",
+        base_url=settings.LLM_BACKUP1_BASE_URL,
+        api_key=settings.LLM_BACKUP1_API_KEY,
+        primary_model=settings.LLM_BACKUP1_MODEL,
+        fallback_models=settings.LLM_BACKUP1_FALLBACK_MODELS,
+        timeout=settings.LLM_BACKUP1_TIMEOUT,
+    )
+    _append_provider_models(
+        chain,
+        provider_name="siliconflow",
+        base_url=settings.LLM_BACKUP2_BASE_URL,
+        api_key=settings.LLM_BACKUP2_API_KEY,
+        primary_model=settings.LLM_BACKUP2_MODEL,
+        fallback_models=settings.LLM_BACKUP2_FALLBACK_MODELS,
+        timeout=settings.LLM_BACKUP2_TIMEOUT,
     )
 
-    # ── Same-gateway fallback models ──
-    fallback_models_str = settings.LLM_PRIMARY_FALLBACK_MODELS.strip()
-    if fallback_models_str:
-        for model_name in fallback_models_str.split(","):
-            model_name = model_name.strip()
-            if model_name:
-                chain.append(
-                    LLMProviderConfig(
-                        name=f"primary-{model_name}",
-                        base_url=settings.LLM_PRIMARY_BASE_URL,
-                        api_key=settings.LLM_PRIMARY_API_KEY,
-                        model=model_name,
-                        timeout=settings.LLM_PRIMARY_TIMEOUT,
-                    )
-                )
-
-    # ── External backups ──
-    chain.append(
-        LLMProviderConfig(
-            name="siliconflow",
-            base_url=settings.LLM_BACKUP1_BASE_URL,
-            api_key=settings.LLM_BACKUP1_API_KEY,
-            model=settings.LLM_BACKUP1_MODEL,
-            timeout=settings.LLM_BACKUP1_TIMEOUT,
-        )
-    )
-    chain.append(
-        LLMProviderConfig(
-            name="nvidia",
-            base_url=settings.LLM_BACKUP2_BASE_URL,
-            api_key=settings.LLM_BACKUP2_API_KEY,
-            model=settings.LLM_BACKUP2_MODEL,
-            timeout=settings.LLM_BACKUP2_TIMEOUT,
-        )
-    )
-
-    model_names = [p.model for p in chain]
+    model_names = [f"{p.name}:{p.model}" for p in chain]
     logger.info("LLM provider chain: %s", " → ".join(model_names))
     return chain
 
@@ -116,37 +138,18 @@ class LLMResult:
 # ── System & User prompt construction ────────────────────
 
 SYSTEM_PROMPT = """\
-你是一位经验丰富的特种兵旅行规划师。根据用户给出的出发地、目的地、时长和预算，规划一条极限省钱、时间紧凑的路线。
+你是一位经验丰富的特种兵旅行规划师。
 
-严格要求：
-1. 输出格式为 JSON，不允许任何额外解释文本
-2. 每个 leg 必须包含：地点名称(name)、经纬度(latitude/longitude)、起止时间(start_time_local/end_time_local，ISO 8601)、交通方式(transport)、预估花费(estimated_cost)
-3. 花费必须标注币种，默认人民币 CNY
-4. 时间必须连续，不允许出现未安排的空档
-5. 总花费不得超过用户设定的预算上限
-6. 优先推荐当地人去的平价餐厅和免费景点
-7. activity_type 必须为以下之一: flight, transit, food, attraction, rest, shopping
-8. transport.mode 必须为以下之一: walk, bus, metro, taxi, train, flight
-
-输出 JSON 骨架（严格遵守，不要添加额外字段）:
-```json
-{
-  "title": "string",
-  "summary": {"total_hours": 0, "estimated_total_cost": {"amount": 0, "currency": "CNY"}},
-  "legs": [
-    {
-      "index": 0,
-      "start_time_local": "2026-01-01T08:00:00",
-      "end_time_local": "2026-01-01T09:00:00",
-      "activity_type": "transit",
-      "place": {"name": "", "latitude": 0, "longitude": 0, "address": ""},
-      "transport": {"mode": "bus", "reference": ""},
-      "estimated_cost": {"amount": 0, "currency": "CNY"},
-      "tips": [""]
-    }
-  ]
-}
-```\
+仅输出 JSON 对象，不允许任何解释文本或 Markdown。
+字段只允许：title、summary、legs。
+summary 只允许：total_hours、estimated_total_cost。
+每个 leg 只允许：index、start_time_local、end_time_local、activity_type、place、transport、estimated_cost、tips。
+activity_type 只能是：flight, transit, food, attraction, rest, shopping。
+transport.mode 只能是：walk, bus, metro, taxi, train, flight。
+place 必须包含：name、latitude、longitude、address。
+estimated_cost 必须包含：amount、currency。
+时间必须连续，总花费不得超过预算。
+优先输出紧凑、可执行、省钱的路线，减少冗长描述。
 """
 
 
@@ -163,14 +166,18 @@ def build_user_prompt(
     tag_text = "、".join(tags) if tags else "无特殊偏好"
     lang = "中文" if locale.startswith("zh") else "English"
     return (
-        f"出发地：{origin}\n"
-        f"目的地：{destination}\n"
-        f"总时长：{total_hours} 小时\n"
-        f"预算上限：{budget_amount} {budget_currency}\n"
-        f"偏好标签：{tag_text}\n"
-        f"时区：{timezone}\n"
-        f"请用{lang}输出。\n"
-        f"仅输出 JSON，不要任何其他文字。"
+        f"请为以下需求生成紧凑 itinerary JSON："
+        f"出发地={origin}；"
+        f"目的地={destination}；"
+        f"总时长={total_hours}小时；"
+        f"预算={budget_amount} {budget_currency}；"
+        f"偏好={tag_text}；"
+        f"时区={timezone}；"
+        f"语言={lang}；"
+        f"legs 控制在 4 到 {settings.LLM_PRIMARY_MAX_LEGS} 段；"
+        f"每段 tips 最多 {settings.LLM_PRIMARY_MAX_TIPS_PER_LEG} 条短句；"
+        f"字段严格匹配系统要求；"
+        f"仅输出 JSON。"
     )
 
 
@@ -329,6 +336,10 @@ class LLMGateway:
                 {"role": "user", "content": user_prompt},
             ],
         }
+        if provider.reasoning_effort:
+            payload["reasoning_effort"] = provider.reasoning_effort
+        if provider.max_completion_tokens:
+            payload["max_completion_tokens"] = provider.max_completion_tokens
 
         start = time.monotonic()
         # Separate connect (10s) and read timeout (per-provider, for LLM generation)

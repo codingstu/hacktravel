@@ -49,8 +49,9 @@ const ACTIVITY_ICON_MAP: Record<string, { name: string; color: string }> = {
   flight: { name: 'airplane', color: '#5B8DEF' },
 };
 
-/** 随机加载文案 — 让等待不无聊 */
+/** 随机加载文案 — 仅在 AI 生成时展示 */
 const LOADING_QUIPS = [
+  '未找到内置路线，AI 正在专属定制中…',
   '正在翻遍全网找最便宜的机票…',
   '疯狂计算怎么用最少的钱吃到最多美食…',
   '帮你跟本地人打听哪条巷子值得钻…',
@@ -310,10 +311,22 @@ export default function GenerateScreen() {
                   value={`${result.legs.length}`}
                 />
               </View>
-              {result.source.cache_hit && (
+              {result.source.is_preset && (
+                <View style={styles.presetBadge}>
+                  <Ionicons name="flash" size={12} color={Colors.primary} />
+                  <Text style={styles.presetBadgeText}>闪电推荐</Text>
+                </View>
+              )}
+              {result.source.cache_hit && !result.source.is_preset && (
                 <View style={styles.cacheBadge}>
                   <Ionicons name="flash" size={12} color={Colors.success} />
                   <Text style={styles.cacheBadgeText}>极速缓存</Text>
+                </View>
+              )}
+              {!result.source.cache_hit && !result.source.is_preset && (
+                <View style={styles.aiBadge}>
+                  <Ionicons name="sparkles" size={12} color="#8B5CF6" />
+                  <Text style={styles.aiBadgeText}>AI 定制</Text>
                 </View>
               )}
             </View>
@@ -348,7 +361,7 @@ export default function GenerateScreen() {
           <View style={styles.presetArea}>
             <Text style={styles.sectionLabel}>热门路线</Text>
             <Text style={styles.sectionDesc}>
-              点击自动填入参数，一键体验
+              对应目的地可秒出路线，点击自动填入参数
             </Text>
             {PRESET_ROUTES.map(route => (
               <TouchableOpacity
@@ -724,6 +737,40 @@ const styles = StyleSheet.create({
   },
   cacheBadgeText: {
     color: Colors.success,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+  },
+  presetBadge: {
+    position: 'absolute',
+    top: Spacing.md,
+    right: Spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: `${Colors.primary}18`,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.full,
+    gap: 4,
+  },
+  presetBadgeText: {
+    color: Colors.primary,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+  },
+  aiBadge: {
+    position: 'absolute',
+    top: Spacing.md,
+    right: Spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#8B5CF618',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.full,
+    gap: 4,
+  },
+  aiBadgeText: {
+    color: '#8B5CF6',
     fontSize: FontSize.xs,
     fontWeight: FontWeight.semibold,
   },
