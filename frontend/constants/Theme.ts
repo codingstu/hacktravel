@@ -1,66 +1,71 @@
 /**
- * HackTravel 设计系统 v3 — 「潮旅杂志」风格
+ * HackTravel 设计系统 v5 — 「商业级蓝白现代」风格 (Premium Commercial)
  *
- * 设计原则：
- * 1. 去 AI 味 — 不使用 emoji 做版块标题，用纯排版 + 留白 + 色块建立层次
- * 2. 杂志感排版 — 大号标题 + 显著对比 + 不对称留白
- * 3. 色彩有性格 — 珊瑚橘 × 暗墨蓝 × 奶油白，温暖但不幼稚
- * 4. 玻璃质感 — 卡片带微妙投影 + 浅磨砂背景
+ * 设计原则与用户心理：
+ * 1. 极致信任感：使用经典商务蓝为核心品牌色，缓解用户的认知焦虑，建立对应用的信任。
+ * 2. 视觉友好：抛弃刺眼的荧光绿与沉闷的暗色杂交，统一为大面积清爽留白＋高级深邃的对比色。
+ * 3. 商业落地感（Airbnb / Stripe)：文字、投影与间距全面贴合主流顶尖应用的沉浸式体验。
  */
 export const Colors = {
-  // ── 主色 ──
-  primary: '#E8653A',       // 珊瑚橘 — 比纯橙更高级
-  primaryLight: '#FFF0EB',  // 橘色浅底
-  primaryDark: '#C9512A',   // 按压态
-  accent: '#FFB347',        // 暖金点缀
+  // ── 主色 ── (商业级湛蓝)
+  primary: '#2563EB',       // Blue 600 - 高级商业首选颜色，信任感强
+  primaryLight: '#EFF6FF',  // Blue 50 - 清透的浅蓝底色
+  primaryDark: '#1D4ED8',   // Blue 700 - 操作态深蓝
+  accent: '#FFFFFF',        // 反色：用于主色/带颜色背景上的纯白图标与字体
 
   // ── 基底 ──
-  secondary: '#0F1923',     // 暗墨蓝
-  secondaryLight: '#1C2D3F', // 稍亮墨蓝 — 卡片内
-  background: '#FAF8F5',    // 奶油白
-  surface: '#FFFFFF',
-  surfaceElevated: '#FFFEFB', // 略偏暖的提升卡片
+  secondary: '#0F172A',     // Slate 900 - 极沉稳的黑蓝，用于高端黑卡、摘要
+  secondaryLight: '#1E293B',// Slate 800 - 深色区域边框与提升层
+  background: '#F8FAFC',    // Slate 50 - 比纯白稍微柔和的冷灰底，减少眼部疲劳
+  surface: '#FFFFFF',       // 纯白表单与组件底
+  surfaceElevated: '#FFFFFF', 
 
   // ── 文字 ──
-  text: '#1A1D21',          // 近黑
-  textSecondary: '#5A6068', // 更温暖的灰
-  textLight: '#A0A7B0',     // 占位符 / 次次级
-  textOnDark: '#E8ECF0',    // 暗底上的浅字
+  text: '#0F172A',          // 极深色，主文字
+  textSecondary: '#475569', // Slate 600 - 优秀的次级阅读色
+  textLight: '#94A3B8',     // Slate 400 - 输入框占位符
+  textOnDark: '#F8FAFC',    // 暗色卡片上的辅助文字色
+  textOnPrimary: '#FFFFFF', // 主色块上的文字（强制对比白）
 
   // ── 功能色 ──
-  border: '#ECEAE6',        // 暖灰分割
-  divider: '#F0EDE9',
-  success: '#2ABF6E',
-  warning: '#F0A020',
-  error: '#E04848',
+  border: '#E2E8F0',        // 极淡的高级分割线 (Slate 200)
+  divider: '#F1F5F9',       // Slate 100
+  success: '#10B981',       // 统一标准的绿 (Emerald 500)
+  warning: '#F59E0B',       // Amber 500
+  error: '#EF4444',         // Red 500
 
   // ── 时间轴 ──
-  timeline: '#E8653A',
-  timelineFaded: '#E8653A22',
+  timeline: '#2563EB',      // 蓝色主轴
+  timelineFaded: '#DBEAFE', // 轨道浅色底
 
   // ── 标签 ──
   tag: {
-    bg: '#FFF0EB',
-    text: '#D05530',
-    border: '#F5D0C0',
+    bg: '#F1F5F9',
+    text: '#475569',
+    border: '#E2E8F0',
+  },
+  tagActive: {
+    bg: '#EFF6FF',
+    text: '#2563EB',
+    border: '#2563EB',
   },
 
   // ── Tab Bar ──
   tab: {
-    active: '#E8653A',
-    inactive: '#B0B5BC',
-    bg: '#FFFEFB',
-    border: '#F0EDE9',
+    active: '#2563EB',
+    inactive: '#94A3B8',
+    bg: '#FFFFFF',
+    border: '#E2E8F0',
   },
 
-  // ── 渐变：用于 Header / Hero ──
+  // ── 渐变：用于 Header / Hero (商业极简避免过度渐变) ──
   gradient: {
-    heroStart: '#0F1923',
-    heroEnd: '#1A3040',
-    ctaStart: '#E8653A',
-    ctaEnd: '#D04A2A',
-    warmStart: '#FFFAF5',
-    warmEnd: '#FAF8F5',
+    heroStart: '#2563EB',
+    heroEnd: '#1D4ED8',
+    ctaStart: '#2563EB',
+    ctaEnd: '#2563EB',
+    warmStart: '#FFFFFF',
+    warmEnd: '#F8FAFC',
   },
 };
 

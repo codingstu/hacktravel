@@ -7,7 +7,7 @@
  * - 时间轴用色块渐变替代圆点线条
  * - 加载态用个性文案替代通用 spinner 文字
  */
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -20,8 +20,16 @@ import {
   Platform,
   KeyboardAvoidingView,
   Alert,
+  Modal,
+  Image,
 } from 'react-native';
+import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
+import {
+  DEFAULT_CONTINENT,
+  inferContinentFromCoordinates,
+  inferContinentFromTimezone,
+} from '@/services/region';
 import {
   Colors,
   Spacing,
@@ -30,15 +38,54 @@ import {
   BorderRadius,
   Shadow,
 } from '@/constants/Theme';
-import { generateItinerary, ApiError } from '@/services/api';
-import { TRAVEL_TAGS, HOT_DESTINATIONS, PRESET_ROUTES } from '@/services/presets';
+import {
+  generateItinerary,
+  ApiError,
+  fetchPlaceDetail,
+  fetchRegionMetadata,
+} from '@/services/api';
+import {
+  TRAVEL_TAGS,
+  CONTINENT_OPTIONS,
+  FEATURED_SUB_REGIONS_FALLBACK,
+  REGION_METADATA_FALLBACK,
+  PRESET_ROUTES,
+  HOT_DESTINATIONS,
+} from '@/services/presets';
+import { formatMoney, formatMoneyWithCode, getTimezoneLabel } from '@/utils/format';
 import type {
+  Continent,
+  FeaturedSubRegion,
   ItineraryGenerateResponse,
   ItineraryLeg,
   CommunityRoute,
+  PlaceDetailResponse,
+  RegionMeta,
 } from '@/services/types';
 
 type ViewState = 'idle' | 'loading' | 'success' | 'error';
+
+/** 将 ApiError 转换为用户友好的中文提示 */
+function friendlyApiError(err: ApiError): string {
+  switch (err.code) {
+    case 'HKT_429_RATE_LIMITED':
+      return err.retryAfter
+        ? `请求太频繁，请 ${err.retryAfter} 秒后重试`
+        : '请求太频繁，请稍后重试';
+    case 'HKT_503_MODEL_UNAVAILABLE':
+      return 'AI 服务暂时不可用，请稍后重试';
+    case 'HKT_504_MODEL_TIMEOUT':
+      return 'AI 生成超时，请重试';
+    case 'HKT_599_FALLBACK_CACHE_MISS':
+      return '所有 AI 模型均不可用，请稍后重试';
+    case 'HKT_400_INVALID_INPUT':
+      return `输入有误：${err.message}`;
+    case 'HKT_422_SCHEMA_VALIDATION_FAILED':
+      return '参数格式错误，请检查输入';
+    default:
+      return err.message || '未知错误，请稍后重试';
+  }
+}
 
 /** 活动类型 → Ionicons 图标映射（替代 emoji） */
 const ACTIVITY_ICON_MAP: Record<string, { name: string; color: string }> = {
@@ -67,6 +114,43 @@ export default function GenerateScreen() {
   const [hours, setHours] = useState('48');
   const [budget, setBudget] = useState('3000');
   const [selectedTags, setSelectedTags] = useState<string[]>(['疯狂暴走']);
+  const [selectedContinent, setSelectedContinent] = useState<Continent>(DEFAULT_CONTINENT);
+  const [selectedSubRegion, setSelectedSubRegion] = useState<string>('');
+  const [regionMeta, setRegionMeta] = useState<RegionMeta[]>(REGION_METADATA_FALLBACK);
+  const [featuredSubRegions, setFeaturedSubRegions] = useState<FeaturedSubRegion[]>(FEATURED_SUB_REGIONS_FALLBACK);
+  const [regionLoading, setRegionLoading] = useState(true);
+
+  const activeRegion = useMemo(
+    () => regionMeta.find(region => region.key === selectedContinent) ?? null,
+    [regionMeta, selectedContinent],
+  );
+
+  const activeSubRegions = useMemo(
+    () => activeRegion?.sub_regions ?? [],
+    [activeRegion],
+  );
+
+  const filteredHotDestinations = useMemo(() => {
+    if (selectedSubRegion) {
+      const subRegionMeta = featuredSubRegions.find(item => item.key === selectedSubRegion);
+      if (subRegionMeta?.hot_destinations?.length) {
+        return subRegionMeta.hot_destinations;
+      }
+    }
+    if (activeRegion?.hot_destinations?.length) {
+      return activeRegion.hot_destinations;
+    }
+    return HOT_DESTINATIONS;
+  }, [activeRegion, featuredSubRegions, selectedSubRegion]);
+
+  const filteredPresetRoutes = useMemo(
+    () => PRESET_ROUTES.filter(route => {
+      if (route.continent !== selectedContinent) return false;
+      if (selectedSubRegion && route.sub_region !== selectedSubRegion) return false;
+      return true;
+    }),
+    [selectedContinent, selectedSubRegion],
+  );
 
   // ── Result ──
   const [viewState, setViewState] = useState<ViewState>('idle');
@@ -83,6 +167,77 @@ export default function GenerateScreen() {
   const [newLegType, setNewLegType] = useState<string>('attraction');
 
   const scrollRef = useRef<ScrollView>(null);
+
+  // ── 地点详情 Modal ──
+  const [placeModalVisible, setPlaceModalVisible] = useState(false);
+  const [placeDetail, setPlaceDetail] = useState<PlaceDetailResponse | null>(null);
+  const [placeDetailLoading, setPlaceDetailLoading] = useState(false);
+  const [selectedLeg, setSelectedLeg] = useState<ItineraryLeg | null>(null);
+
+  const handlePressPlace = useCallback(async (leg: ItineraryLeg) => {
+    setSelectedLeg(leg);
+    setPlaceDetail(null);
+    setPlaceModalVisible(true);
+    setPlaceDetailLoading(true);
+    try {
+      const detail = await fetchPlaceDetail({
+        name: leg.place.name,
+        latitude: leg.place.latitude,
+        longitude: leg.place.longitude,
+      });
+      setPlaceDetail(detail);
+    } catch {
+      // Still show modal with leg info even if Wikipedia fails
+      setPlaceDetail({
+        name: leg.place.name,
+        description: '',
+        image_url: null,
+        wiki_url: null,
+        map_url: leg.place.latitude && leg.place.longitude
+          ? `https://www.google.com/maps/search/?api=1&query=${leg.place.latitude},${leg.place.longitude}`
+          : null,
+      });
+    } finally {
+      setPlaceDetailLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const bootstrapRegion = async () => {
+      try {
+        const metadata = await fetchRegionMetadata();
+        setRegionMeta(metadata.continents);
+        setFeaturedSubRegions(metadata.featured_sub_regions);
+      } catch {
+        setRegionMeta(REGION_METADATA_FALLBACK);
+        setFeaturedSubRegions(FEATURED_SUB_REGIONS_FALLBACK);
+      } finally {
+        setRegionLoading(false);
+      }
+
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      let inferredContinent = inferContinentFromTimezone(timezone);
+      try {
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (permission.status === 'granted') {
+          const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          inferredContinent = inferContinentFromCoordinates(
+            current.coords.latitude,
+            current.coords.longitude,
+          );
+        }
+      } catch {
+        inferredContinent = inferContinentFromTimezone(timezone);
+      }
+      setSelectedContinent(inferredContinent);
+    };
+
+    bootstrapRegion();
+  }, []);
+
+  useEffect(() => {
+    setSelectedSubRegion('');
+  }, [selectedContinent]);
 
   const toggleTag = useCallback((tag: string) => {
     setSelectedTags(prev =>
@@ -112,6 +267,8 @@ export default function GenerateScreen() {
           currency: 'CNY',
         },
         tags: selectedTags,
+        continent: selectedContinent,
+        sub_region: selectedSubRegion || undefined,
       });
       setResult(resp);
       setEditableLegs(resp.legs);
@@ -123,7 +280,7 @@ export default function GenerateScreen() {
       }, 300);
     } catch (err) {
       if (err instanceof ApiError) {
-        setErrorMsg(`${err.code}: ${err.message}`);
+        setErrorMsg(friendlyApiError(err));
       } else if (err instanceof Error) {
         setErrorMsg(err.name === 'AbortError' ? '请求超时，请重试' : err.message);
       } else {
@@ -131,7 +288,7 @@ export default function GenerateScreen() {
       }
       setViewState('error');
     }
-  }, [origin, destination, hours, budget, selectedTags]);
+  }, [origin, destination, hours, budget, selectedContinent, selectedSubRegion, selectedTags]);
 
   const handleOpenMaps = useCallback((url: string) => {
     Linking.openURL(url);
@@ -200,6 +357,8 @@ export default function GenerateScreen() {
         total_hours: parseInt(hours, 10) || 48,
         budget: { amount: parseInt(budget, 10) || 3000, currency: 'CNY' },
         tags: selectedTags,
+        continent: selectedContinent,
+        sub_region: selectedSubRegion || undefined,
         skip_preset: true,
       });
       setResult(resp);
@@ -214,13 +373,15 @@ export default function GenerateScreen() {
       else setErrorMsg('未知错误，请稍后重试');
       setViewState('error');
     }
-  }, [origin, destination, hours, budget, selectedTags]);
+  }, [origin, destination, hours, budget, selectedContinent, selectedSubRegion, selectedTags]);
 
   const fillPreset = useCallback((route: CommunityRoute) => {
     setDestination(route.destination);
     setHours(route.total_hours.toString());
     setBudget(route.budget.amount.toString());
     setSelectedTags(route.tags);
+    if (route.continent) setSelectedContinent(route.continent);
+    setSelectedSubRegion(route.sub_region ?? '');
   }, []);
 
   return (
@@ -270,13 +431,75 @@ export default function GenerateScreen() {
             </View>
           </View>
 
+          {/* 大洲开关 */}
+          <Text style={styles.fieldLabel}>CONTINENT</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.hotScroll}
+            contentContainerStyle={styles.hotContent}>
+            {CONTINENT_OPTIONS.map(option => (
+              <TouchableOpacity
+                key={option.key}
+                style={[
+                  styles.hotChip,
+                  selectedContinent === option.key && styles.hotChipActive,
+                ]}
+                onPress={() => setSelectedContinent(option.key)}>
+                <Text
+                  style={[
+                    styles.hotChipText,
+                    selectedContinent === option.key && styles.hotChipTextActive,
+                  ]}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          {activeSubRegions.length > 0 && (
+            <>
+              <Text style={styles.fieldLabel}>FOCUS REGION</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.hotScroll}
+                contentContainerStyle={styles.hotContent}>
+                <TouchableOpacity
+                  style={[styles.hotChip, !selectedSubRegion && styles.hotChipActive]}
+                  onPress={() => setSelectedSubRegion('')}>
+                  <Text style={[styles.hotChipText, !selectedSubRegion && styles.hotChipTextActive]}>
+                    全部
+                  </Text>
+                </TouchableOpacity>
+                {activeSubRegions.map(region => (
+                  <TouchableOpacity
+                    key={region.key}
+                    style={[
+                      styles.hotChip,
+                      selectedSubRegion === region.key && styles.hotChipActive,
+                    ]}
+                    onPress={() => setSelectedSubRegion(region.key)}>
+                    <Text
+                      style={[
+                        styles.hotChipText,
+                        selectedSubRegion === region.key && styles.hotChipTextActive,
+                      ]}>
+                      {region.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </>
+          )}
+
           {/* 热门目的地 */}
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             style={styles.hotScroll}
             contentContainerStyle={styles.hotContent}>
-            {HOT_DESTINATIONS.map(dest => (
+            {filteredHotDestinations.map((dest: string) => (
               <TouchableOpacity
                 key={dest}
                 style={[
@@ -295,10 +518,14 @@ export default function GenerateScreen() {
             ))}
           </ScrollView>
 
-          {/* 时长 & 预算 */}
+          {regionLoading && (
+            <Text style={styles.loadingQuip}>正在识别你所在的大洲并加载全球热门路线…</Text>
+          )}
+
+          {/* DURATION & BUDGET */}
           <View style={styles.paramRow}>
             <View style={styles.paramItem}>
-              <Text style={styles.fieldLabel}>时长</Text>
+              <Text style={styles.fieldLabel}>DURATION</Text>
               <View style={styles.paramInputWrap}>
                 <TextInput
                   style={styles.paramInput}
@@ -308,12 +535,12 @@ export default function GenerateScreen() {
                   placeholder="48"
                   placeholderTextColor={Colors.textLight}
                 />
-                <Text style={styles.paramUnit}>小时</Text>
+                <Text style={styles.paramUnit}>hrs</Text>
               </View>
             </View>
             <View style={styles.paramDivider} />
             <View style={styles.paramItem}>
-              <Text style={styles.fieldLabel}>预算</Text>
+              <Text style={styles.fieldLabel}>BUDGET</Text>
               <View style={styles.paramInputWrap}>
                 <Text style={styles.paramPrefix}>¥</Text>
                 <TextInput
@@ -328,8 +555,8 @@ export default function GenerateScreen() {
             </View>
           </View>
 
-          {/* 偏好标签 */}
-          <Text style={styles.fieldLabel}>偏好</Text>
+          {/* PREFERENCES标签 */}
+          <Text style={styles.fieldLabel}>PREFERENCES</Text>
           <View style={styles.tagWrap}>
             {TRAVEL_TAGS.map(tag => (
               <TouchableOpacity
@@ -357,11 +584,11 @@ export default function GenerateScreen() {
             disabled={viewState === 'loading'}
             activeOpacity={0.85}>
             {viewState === 'loading' ? (
-              <ActivityIndicator color="#fff" size="small" />
+              <ActivityIndicator color={Colors.accent} size="small" />
             ) : (
               <>
-                <Ionicons name="flash" size={18} color="#fff" />
-                <Text style={styles.ctaBtnText}>开始规划</Text>
+                <Ionicons name="flash" size={18} color={Colors.accent} />
+                <Text style={styles.ctaBtnText}>Plan My Trip</Text>
               </>
             )}
           </TouchableOpacity>
@@ -390,12 +617,13 @@ export default function GenerateScreen() {
               <Text style={styles.summaryTitle}>{result.title}</Text>
               <View style={styles.summaryRow}>
                 <SummaryPill
-                  label="总时长"
+                  label="总DURATION"
                   value={`${result.summary.total_hours}h`}
                 />
                 <SummaryPill
                   label="预计花费"
-                  value={`¥${result.summary.estimated_total_cost.amount}`}
+                  value={formatMoney(result.summary.estimated_total_cost)}
+                  sub={result.summary.estimated_total_cost.currency}
                 />
                 <SummaryPill
                   label="节点"
@@ -416,13 +644,13 @@ export default function GenerateScreen() {
               )}
               {!result.source.cache_hit && !result.source.is_preset && (
                 <View style={styles.aiBadge}>
-                  <Ionicons name="sparkles" size={12} color="#8B5CF6" />
+                  <Ionicons name="sparkles" size={12} color={Colors.primary} />
                   <Text style={styles.aiBadgeText}>AI 定制</Text>
                 </View>
               )}
             </View>
 
-            {/* 预算警告 */}
+            {/* BUDGET警告 */}
             {(() => {
               const estimated = result.summary.estimated_total_cost.amount;
               const userBudget = parseInt(budget, 10) || 0;
@@ -431,7 +659,7 @@ export default function GenerateScreen() {
                   <View style={styles.budgetWarnBanner}>
                     <Ionicons name="warning" size={16} color="#92400E" />
                     <Text style={styles.budgetWarnText}>
-                      预置路线预估 ¥{estimated}，超出你的预算 ¥{userBudget}，
+                      预置路线预估 ¥{estimated} CNY，超出你的预算 ¥{userBudget} CNY，
                       可手动删除节点或用 AI 重新规划
                     </Text>
                   </View>
@@ -457,13 +685,28 @@ export default function GenerateScreen() {
               <TouchableOpacity
                 style={styles.actionBtnSecondary}
                 onPress={handleForceAI}>
-                <Ionicons name="sparkles" size={16} color="#8B5CF6" />
+                <Ionicons name="sparkles" size={16} color={Colors.accent} />
                 <Text style={styles.actionBtnSecondaryText}>AI 重新规划</Text>
               </TouchableOpacity>
             </View>
 
             {/* 时间轴 */}
             <View style={styles.timeline}>
+              {/* 时区提示（跨时区路线） */}
+              {(() => {
+                const tzLabel = getTimezoneLabel(destination);
+                if (tzLabel) {
+                  return (
+                    <View style={styles.timezoneBanner}>
+                      <Ionicons name="time-outline" size={14} color={Colors.primary} />
+                      <Text style={styles.timezoneText}>
+                        以下时间均为目的地{tzLabel}
+                      </Text>
+                    </View>
+                  );
+                }
+                return null;
+              })()}
               {editableLegs.map((leg, i) => (
                 <TimelineLeg
                   key={`${i}-${leg.place.name}`}
@@ -476,6 +719,7 @@ export default function GenerateScreen() {
                   onMoveUp={() => moveLegUp(i)}
                   onMoveDown={() => moveLegDown(i)}
                   onDelete={() => deleteLeg(i)}
+                  onPressPlace={() => handlePressPlace(leg)}
                 />
               ))}
             </View>
@@ -565,7 +809,7 @@ export default function GenerateScreen() {
               style={styles.mapsBtn}
               onPress={() => handleOpenMaps(result.map.google_maps_deeplink)}
               activeOpacity={0.85}>
-              <Ionicons name="navigate" size={20} color="#fff" />
+              <Ionicons name="navigate" size={20} color={Colors.accent} />
               <Text style={styles.mapsBtnText}>
                 导入 Google Maps · {result.map.waypoints_count} 个途经点
               </Text>
@@ -578,9 +822,9 @@ export default function GenerateScreen() {
           <View style={styles.presetArea}>
             <Text style={styles.sectionLabel}>热门路线</Text>
             <Text style={styles.sectionDesc}>
-              对应目的地可秒出路线，点击自动填入参数
+              {activeRegion ? `${activeRegion.label} 热门路线优先展示` : '对应目的地可秒出路线，点击自动填入参数'}
             </Text>
-            {PRESET_ROUTES.map(route => (
+            {filteredPresetRoutes.map(route => (
               <TouchableOpacity
                 key={route.id}
                 style={styles.presetCard}
@@ -596,26 +840,152 @@ export default function GenerateScreen() {
                 </View>
                 <View style={styles.presetMeta}>
                   <Text style={styles.presetChip}>{route.total_hours}H</Text>
-                  <Text style={styles.presetChip}>¥{route.budget.amount}</Text>
+                  <Text style={styles.presetChip}>{formatMoneyWithCode(route.budget)}</Text>
                   <Text style={styles.presetChip}>
                     {route.copy_count} 人抄过
                   </Text>
+                  {route.sub_region ? (
+                    <Text style={styles.presetChip}>{route.sub_region}</Text>
+                  ) : null}
                 </View>
               </TouchableOpacity>
             ))}
           </View>
         )}
       </ScrollView>
+
+      {/* ── 地点详情 Modal ── */}
+      <Modal
+        visible={placeModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setPlaceModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {/* 关闭按钮 */}
+            <TouchableOpacity
+              style={styles.modalClose}
+              onPress={() => setPlaceModalVisible(false)}>
+              <Ionicons name="close" size={24} color={Colors.text} />
+            </TouchableOpacity>
+
+            {placeDetailLoading ? (
+              <View style={styles.modalLoading}>
+                <ActivityIndicator size="large" color={Colors.primary} />
+                <Text style={styles.modalLoadingText}>正在加载地点详情…</Text>
+              </View>
+            ) : selectedLeg && (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {/* 地点图片 */}
+                {placeDetail?.image_url && (
+                  <Image
+                    source={{ uri: placeDetail.image_url }}
+                    style={styles.modalImage}
+                    resizeMode="cover"
+                  />
+                )}
+
+                {/* 地点名称 + 类型 */}
+                <View style={styles.modalHeader}>
+                  <View style={[
+                    styles.modalIconBg,
+                    { backgroundColor: (ACTIVITY_ICON_MAP[selectedLeg.activity_type] || { color: Colors.primary }).color },
+                  ]}>
+                    <Ionicons
+                      name={(ACTIVITY_ICON_MAP[selectedLeg.activity_type] || { name: 'location' }).name as any}
+                      size={20}
+                      color="#fff"
+                    />
+                  </View>
+                  <View style={styles.modalTitleArea}>
+                    <Text style={styles.modalTitle}>{selectedLeg.place.name}</Text>
+                    <Text style={styles.modalSubtitle}>
+                      {selectedLeg.start_time_local.slice(11, 16)} – {selectedLeg.end_time_local.slice(11, 16)}
+                      {' · '}{formatMoney(selectedLeg.estimated_cost, true)}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* 交通信息 */}
+                {selectedLeg.transport && (
+                  <View style={styles.modalInfoRow}>
+                    <Ionicons name="car-outline" size={16} color={Colors.textSecondary} />
+                    <Text style={styles.modalInfoText}>
+                      {selectedLeg.transport.mode}
+                      {selectedLeg.transport.reference ? ` · ${selectedLeg.transport.reference}` : ''}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Wikipedia 简介 */}
+                {placeDetail?.description ? (
+                  <View style={styles.modalSection}>
+                    <Text style={styles.modalSectionTitle}>简介</Text>
+                    <Text style={styles.modalDesc}>{placeDetail.description}</Text>
+                  </View>
+                ) : null}
+
+                {/* Insider Tips / 热门评价 */}
+                {selectedLeg.tips && selectedLeg.tips.length > 0 && (
+                  <View style={styles.modalSection}>
+                    <Text style={styles.modalSectionTitle}>旅行者贴士</Text>
+                    {selectedLeg.tips.map((tip, i) => (
+                      <View key={i} style={styles.modalTipRow}>
+                        <Ionicons name="chatbubble-ellipses-outline" size={14} color={Colors.primary} />
+                        <Text style={styles.modalTipText}>{tip}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {/* 坐标 */}
+                {selectedLeg.place.latitude != null && selectedLeg.place.longitude != null && (
+                  <View style={styles.modalInfoRow}>
+                    <Ionicons name="location-outline" size={16} color={Colors.textSecondary} />
+                    <Text style={styles.modalInfoText}>
+                      {selectedLeg.place.latitude.toFixed(4)}, {selectedLeg.place.longitude.toFixed(4)}
+                    </Text>
+                  </View>
+                )}
+
+                {/* 操作按钮 */}
+                <View style={styles.modalActions}>
+                  {placeDetail?.map_url && (
+                    <TouchableOpacity
+                      style={styles.modalActionBtn}
+                      onPress={() => Linking.openURL(placeDetail.map_url!)}>
+                      <Ionicons name="navigate" size={16} color="#fff" />
+                      <Text style={styles.modalActionText}>在 Google Maps 中查看</Text>
+                    </TouchableOpacity>
+                  )}
+                  {placeDetail?.wiki_url && (
+                    <TouchableOpacity
+                      style={styles.modalActionBtnSecondary}
+                      onPress={() => Linking.openURL(placeDetail.wiki_url!)}>
+                      <Ionicons name="book-outline" size={16} color={Colors.primary} />
+                      <Text style={styles.modalActionTextSecondary}>Wikipedia 详情</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
     </KeyboardAvoidingView>
   );
 }
 
 /* ─── 子组件 ─── */
 
-function SummaryPill({ label, value }: { label: string; value: string }) {
+function SummaryPill({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <View style={styles.summaryPill}>
-      <Text style={styles.summaryPillValue}>{value}</Text>
+      <View style={styles.summaryPillValueRow}>
+        <Text style={styles.summaryPillValue} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
+        {sub ? <Text style={styles.summaryPillSub}>{sub}</Text> : null}
+      </View>
       <Text style={styles.summaryPillLabel}>{label}</Text>
     </View>
   );
@@ -631,6 +1001,7 @@ function TimelineLeg({
   onMoveUp,
   onMoveDown,
   onDelete,
+  onPressPlace,
 }: {
   leg: ItineraryLeg;
   index: number;
@@ -641,6 +1012,7 @@ function TimelineLeg({
   onMoveUp?: () => void;
   onMoveDown?: () => void;
   onDelete?: () => void;
+  onPressPlace?: () => void;
 }) {
   const startTime = leg.start_time_local.slice(11, 16);
   const endTime = leg.end_time_local.slice(11, 16);
@@ -654,7 +1026,7 @@ function TimelineLeg({
       {/* 左侧时间轴 */}
       <View style={styles.legRail}>
         <View style={[styles.legDot, { backgroundColor: iconInfo.color }]}>
-          <Ionicons name={iconInfo.name as any} size={14} color="#fff" />
+          <Ionicons name={iconInfo.name as any} size={14} color={Colors.accent} />
         </View>
         {!isLast && <View style={styles.legLine} />}
       </View>
@@ -666,7 +1038,7 @@ function TimelineLeg({
             {startTime} – {endTime}
           </Text>
           <View style={styles.legCardRight}>
-            <Text style={styles.legCost}>¥{leg.estimated_cost.amount}</Text>
+            <Text style={styles.legCost}>{formatMoney(leg.estimated_cost, true)}</Text>
             {isEditing && (
               <View style={styles.legEditBtns}>
                 <TouchableOpacity
@@ -686,7 +1058,17 @@ function TimelineLeg({
             )}
           </View>
         </View>
-        <Text style={styles.legPlace}>{leg.place.name}</Text>
+        <TouchableOpacity
+          activeOpacity={onPressPlace ? 0.6 : 1}
+          onPress={onPressPlace}
+          disabled={!onPressPlace}>
+          <View style={styles.legPlaceRow}>
+            <Text style={styles.legPlace}>{leg.place.name}</Text>
+            {onPressPlace && (
+              <Ionicons name="information-circle-outline" size={16} color={Colors.primary} />
+            )}
+          </View>
+        </TouchableOpacity>
         {leg.transport && (
           <Text style={styles.legTransport}>
             {leg.transport.mode}
@@ -815,7 +1197,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.background,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.lg,
     padding: Spacing.md,
     marginBottom: Spacing.lg,
   },
@@ -881,7 +1263,7 @@ const styles = StyleSheet.create({
   // ── CTA
   ctaBtn: {
     backgroundColor: Colors.primary,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.lg,
     paddingVertical: Spacing.lg,
     flexDirection: 'row',
     justifyContent: 'center',
@@ -893,7 +1275,7 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   ctaBtnText: {
-    color: '#fff',
+    color: Colors.accent,
     fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
     letterSpacing: 0.5,
@@ -929,7 +1311,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.sm,
   },
   retryBtnText: {
-    color: '#fff',
+    color: Colors.accent,
     fontWeight: FontWeight.bold,
   },
 
@@ -945,7 +1327,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.lg,
   },
   summaryTitle: {
-    color: '#fff',
+    color: Colors.accent,
     fontSize: FontSize.xxl,
     fontWeight: FontWeight.bold,
     marginBottom: Spacing.lg,
@@ -958,11 +1340,24 @@ const styles = StyleSheet.create({
   summaryPill: {
     alignItems: 'center',
     flex: 1,
+    minWidth: 0,
+  },
+  summaryPillValueRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 2,
   },
   summaryPillValue: {
     color: Colors.accent,
     fontSize: FontSize.xxl,
     fontWeight: FontWeight.heavy,
+  },
+  summaryPillSub: {
+    color: Colors.textOnDark,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.medium,
+    marginBottom: 3,
+    opacity: 0.75,
   },
   summaryPillLabel: {
     color: Colors.textOnDark,
@@ -977,7 +1372,7 @@ const styles = StyleSheet.create({
     right: Spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2ABF6E18',
+    backgroundColor: '`${Colors.success}18`',
     paddingHorizontal: Spacing.sm,
     paddingVertical: 3,
     borderRadius: BorderRadius.full,
@@ -1011,14 +1406,14 @@ const styles = StyleSheet.create({
     right: Spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#8B5CF618',
+    backgroundColor: `${Colors.primary}18`,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 3,
     borderRadius: BorderRadius.full,
     gap: 4,
   },
   aiBadgeText: {
-    color: '#8B5CF6',
+    color: Colors.primary,
     fontSize: FontSize.xs,
     fontWeight: FontWeight.semibold,
   },
@@ -1026,6 +1421,21 @@ const styles = StyleSheet.create({
   // ── Timeline
   timeline: {
     marginBottom: Spacing.lg,
+  },
+  timezoneBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primaryLight,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    marginBottom: Spacing.md,
+    gap: 6,
+  },
+  timezoneText: {
+    fontSize: FontSize.xs,
+    color: Colors.primary,
+    fontWeight: FontWeight.medium,
   },
   legRow: {
     flexDirection: 'row',
@@ -1051,7 +1461,7 @@ const styles = StyleSheet.create({
   legCard: {
     flex: 1,
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.lg,
     padding: Spacing.lg,
     marginBottom: Spacing.md,
     marginLeft: Spacing.sm,
@@ -1098,12 +1508,18 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.bold,
     fontSize: FontSize.sm,
   },
+  legPlaceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 4,
+  },
   legPlace: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.semibold,
     color: Colors.text,
-    marginBottom: 4,
     lineHeight: 24,
+    flex: 1,
   },
   legTransport: {
     fontSize: FontSize.sm,
@@ -1124,7 +1540,7 @@ const styles = StyleSheet.create({
   // ── Maps
   mapsBtn: {
     backgroundColor: '#1A73E8',
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.lg,
     paddingVertical: Spacing.lg,
     flexDirection: 'row',
     justifyContent: 'center',
@@ -1134,7 +1550,7 @@ const styles = StyleSheet.create({
     ...Shadow.colored('#1A73E8'),
   },
   mapsBtnText: {
-    color: '#fff',
+    color: Colors.accent,
     fontSize: FontSize.md,
     fontWeight: FontWeight.bold,
   },
@@ -1146,7 +1562,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFBEB',
     borderWidth: 1,
     borderColor: '#FCD34D',
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.lg,
     padding: Spacing.md,
     marginBottom: Spacing.md,
     gap: Spacing.sm,
@@ -1171,7 +1587,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: Spacing.xs,
     paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.lg,
     borderWidth: 1.5,
     borderColor: Colors.primary,
     backgroundColor: Colors.surface,
@@ -1186,7 +1602,7 @@ const styles = StyleSheet.create({
     color: Colors.primary,
   },
   actionBtnTextActive: {
-    color: '#fff',
+    color: Colors.accent,
   },
   actionBtnSecondary: {
     flex: 1,
@@ -1195,15 +1611,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: Spacing.xs,
     paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1.5,
-    borderColor: '#8B5CF6',
-    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.primary,
+    ...Shadow.sm,
   },
   actionBtnSecondaryText: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.semibold,
-    color: '#8B5CF6',
+    color: Colors.accent,
   },
 
   // ── Add Leg
@@ -1216,7 +1631,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: Spacing.sm,
     paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.lg,
     borderWidth: 1.5,
     borderColor: Colors.primary,
     borderStyle: 'dashed',
@@ -1299,19 +1714,19 @@ const styles = StyleSheet.create({
   addLegConfirm: {
     flex: 1,
     backgroundColor: Colors.primary,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.lg,
     paddingVertical: Spacing.md,
     alignItems: 'center',
   },
   addLegConfirmText: {
-    color: '#fff',
+    color: Colors.accent,
     fontWeight: FontWeight.bold,
     fontSize: FontSize.md,
   },
   addLegCancel: {
     flex: 1,
     backgroundColor: Colors.background,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.lg,
     paddingVertical: Spacing.md,
     alignItems: 'center',
   },
@@ -1340,7 +1755,7 @@ const styles = StyleSheet.create({
   },
   presetCard: {
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.lg,
     padding: Spacing.lg,
     marginBottom: Spacing.md,
     ...Shadow.sm,
@@ -1370,5 +1785,151 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.xs,
     fontWeight: FontWeight.medium,
     overflow: 'hidden',
+  },
+
+  // ── Place Detail Modal ──
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+    maxHeight: '88%',
+    paddingBottom: Spacing.xxxl,
+    ...Shadow.lg,
+  },
+  modalClose: {
+    position: 'absolute',
+    top: Spacing.md,
+    right: Spacing.md,
+    zIndex: 10,
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalLoading: {
+    paddingVertical: Spacing.hero,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.md,
+  },
+  modalLoadingText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  modalImage: {
+    width: '100%',
+    height: 200,
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.sm,
+    gap: Spacing.md,
+  },
+  modalIconBg: {
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalTitleArea: {
+    flex: 1,
+  },
+  modalTitle: {
+    fontSize: FontSize.xl,
+    fontWeight: FontWeight.bold,
+    color: Colors.text,
+  },
+  modalSubtitle: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  modalInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.xs,
+  },
+  modalInfoText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  modalSection: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.lg,
+  },
+  modalSectionTitle: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.semibold,
+    color: Colors.text,
+    marginBottom: Spacing.sm,
+  },
+  modalDesc: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+  },
+  modalTipRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  modalTipText: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.xl,
+    paddingBottom: Spacing.lg,
+  },
+  modalActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    backgroundColor: Colors.primary,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+  },
+  modalActionText: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: '#fff',
+  },
+  modalActionBtnSecondary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    backgroundColor: Colors.primaryLight,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+  },
+  modalActionTextSecondary: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.primary,
   },
 });
