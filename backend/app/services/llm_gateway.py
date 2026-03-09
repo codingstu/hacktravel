@@ -75,13 +75,30 @@ def _append_provider_models(
 
 
 
+def _derive_provider_name(base_url: str, fallback: str) -> str:
+    """Derive a human-readable provider name from the base URL domain."""
+    try:
+        from urllib.parse import urlparse
+        domain = urlparse(base_url).hostname or ""
+        if "nvidia" in domain:
+            return "nvidia"
+        elif "siliconflow" in domain:
+            return "siliconflow"
+        elif "openai" in domain or "showqr" in domain:
+            return "primary"
+        return fallback
+    except Exception:
+        return fallback
+
+
 def _build_provider_chain() -> list[LLMProviderConfig]:
     """Build ordered provider list with provider/model degradation.
 
     Strategy:
-    1. OpenAI-compatible primary gateway only keeps the main model and fails fast
-    2. NVIDIA NIM is the first external fallback, with fast/strong models in order
-    3. SiliconFlow is the second external fallback, avoiding slow reasoning-first models first
+    1. OpenAI-compatible primary gateway: strongest model, fail fast
+    2. Backup1: first external fallback (configured via .env)
+    3. Backup2: second external fallback (configured via .env)
+    Provider names are auto-derived from the base URL domain.
     """
     chain: list[LLMProviderConfig] = []
 
@@ -98,7 +115,7 @@ def _build_provider_chain() -> list[LLMProviderConfig]:
     )
     _append_provider_models(
         chain,
-        provider_name="nvidia",
+        provider_name=_derive_provider_name(settings.LLM_BACKUP1_BASE_URL, "backup1"),
         base_url=settings.LLM_BACKUP1_BASE_URL,
         api_key=settings.LLM_BACKUP1_API_KEY,
         primary_model=settings.LLM_BACKUP1_MODEL,
@@ -107,7 +124,7 @@ def _build_provider_chain() -> list[LLMProviderConfig]:
     )
     _append_provider_models(
         chain,
-        provider_name="siliconflow",
+        provider_name=_derive_provider_name(settings.LLM_BACKUP2_BASE_URL, "backup2"),
         base_url=settings.LLM_BACKUP2_BASE_URL,
         api_key=settings.LLM_BACKUP2_API_KEY,
         primary_model=settings.LLM_BACKUP2_MODEL,

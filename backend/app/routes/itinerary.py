@@ -23,10 +23,21 @@ from app.models.itinerary import (
 )
 from app.services.cache_service import cache_service
 from app.services.itinerary_service import itinerary_service
+from app.services.preset_routes import get_featured_sub_regions, get_region_metadata
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/itineraries", tags=["itineraries"])
+
+
+@router.get("/regions")
+async def get_itinerary_regions() -> dict:
+    """Return continent and sub-region metadata for preset exploration."""
+    return {
+        "default_continent": "Asia",
+        "continents": get_region_metadata(),
+        "featured_sub_regions": get_featured_sub_regions(),
+    }
 
 
 @router.post(
@@ -46,28 +57,35 @@ async def generate_itinerary(
     """Generate an itinerary from user parameters via LLM with cache & failover."""
 
     request_id: str = getattr(request.state, "request_id", "unknown")
+    client_ip = request.client.host if request.client else "unknown"
 
     # ── Rate limiting ────────────────────────────────────
-    # Use a device fingerprint or IP as identifier (anonymous mode)
-    client_ip = request.client.host if request.client else "unknown"
+    # Only enforce rate limit for requests that may invoke LLM (expensive).
+    # Preset / cache hits are free — don't burn rate limit quota on them.
     allowed = await cache_service.check_rate_limit(
         identifier=client_ip,
         limit=settings.RATE_LIMIT_ANONYMOUS,
     )
-    if not allowed:
-        remaining = await cache_service.get_rate_limit_remaining(client_ip, settings.RATE_LIMIT_ANONYMOUS)
-        raise RateLimitedError(
-            message=f"Rate limit exceeded. Try again later.",
-            request_id=request_id,
-            retry_after=60,
-        )
 
     # ── Generation pipeline ──────────────────────────────
     try:
         response = await itinerary_service.generate(req=body, request_id=request_id)
+
+        # If the response came from preset or cache, refund the rate-limit token
+        is_free = getattr(response.source, "is_preset", False) or response.source.cache_hit
+        if is_free:
+            await cache_service.refund_rate_limit(client_ip)
+
         return response
     except RuntimeError as exc:
         # All LLM providers failed AND cache fallback missed
+        if not allowed:
+            # If we're actually over the limit AND LLM is needed, enforce the limit
+            raise RateLimitedError(
+                message="Rate limit exceeded. Try again later.",
+                request_id=request_id,
+                retry_after=60,
+            )
         logger.error("[%s] Generation totally failed: %s", request_id, exc)
         raise FallbackCacheMissError(request_id=request_id)
     except ValidationError as exc:

@@ -67,6 +67,8 @@ class ItineraryService:
             budget_amount=req.budget.amount,
             budget_currency=req.budget.currency.value,
             tags=req.tags,
+            continent=req.continent.value if req.continent else None,
+            sub_region=req.sub_region,
         )
         if preset_result:
             logger.info(

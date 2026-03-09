@@ -42,6 +42,15 @@ class LLMProvider(str, enum.Enum):
     NVIDIA = "nvidia"
 
 
+class Continent(str, enum.Enum):
+    ASIA = "Asia"
+    EUROPE = "Europe"
+    AFRICA = "Africa"
+    NORTH_AMERICA = "NorthAmerica"
+    SOUTH_AMERICA = "SouthAmerica"
+    OCEANIA = "Oceania"
+
+
 # ── Shared Sub-Models ────────────────────────────────────
 
 
@@ -76,6 +85,8 @@ class ItineraryGenerateRequest(BaseModel):
     locale: str = Field(default="zh-CN", pattern=r"^(zh-CN|en-US)$")
     timezone: str = Field(default="Asia/Shanghai", description="用户时区")
     app_version: Optional[str] = None
+    continent: Optional[Continent] = Field(default=None, description="大洲筛选")
+    sub_region: Optional[str] = Field(default=None, max_length=64, description="子区域筛选，如 EastAsia")
     idempotency_key: str = Field(..., min_length=8, max_length=64, description="幂等键")
     skip_preset: bool = Field(default=False, description="强制跳过预置路线，直接调用 AI")
 

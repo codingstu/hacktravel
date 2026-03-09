@@ -15,7 +15,9 @@ from app.services.cache_service import CacheService
 from app.services.preset_routes import (
     find_preset,
     get_all_preset_destinations,
+    get_featured_sub_regions,
     get_preset_count,
+    get_region_metadata,
     _normalize_dest,
 )
 
@@ -217,3 +219,35 @@ def test_preset_budget_within_tolerance():
     result = find_preset("新加坡", 48, 1200, "CNY")
     assert result is not None
     assert result.source.is_preset is True
+
+
+def test_preset_respects_continent_filter():
+    result = find_preset("伦敦", 24, 2200, "CNY", continent="Europe", sub_region="UK")
+    assert result is not None
+    assert "伦敦" in result.title
+
+
+def test_preset_continent_filter_graceful_fallback():
+    result = find_preset("伦敦", 24, 2200, "CNY", continent="Asia")
+    assert result is not None
+    assert result.source.is_preset is True
+
+
+def test_region_metadata_contains_six_continents():
+    metadata = get_region_metadata()
+    keys = {item["key"] for item in metadata}
+    assert keys == {"Asia", "Europe", "Africa", "NorthAmerica", "SouthAmerica", "Oceania"}
+
+
+def test_featured_sub_regions_cover_priority_regions():
+    featured = get_featured_sub_regions()
+    keys = {item["key"] for item in featured}
+    assert {"EastAsia", "SoutheastAsia", "UK", "LatinAmerica", "NorthAfrica", "SubSaharanAfrica"}.issubset(keys)
+
+
+def test_priority_region_density_targets():
+    assert get_preset_count(continent="Asia", sub_region="EastAsia") >= 6
+    assert get_preset_count(continent="Asia", sub_region="SoutheastAsia") >= 6
+    assert get_preset_count(continent="Europe", sub_region="UK") >= 4
+    assert get_preset_count(continent="SouthAmerica", sub_region="LatinAmerica") >= 6
+    assert get_preset_count(continent="Africa") >= 6

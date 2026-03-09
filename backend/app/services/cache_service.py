@@ -129,6 +129,13 @@ class CacheService:
             return limit
         return max(0, limit - int(current))
 
+    async def refund_rate_limit(self, identifier: str) -> None:
+        """Decrement rate-limit counter (refund a token for free requests like presets/cache)."""
+        key = f"{_RATE_LIMIT_PREFIX}{identifier}"
+        current = await self._r.get(key)
+        if current and int(current) > 0:
+            await self._r.decr(key)
+
 
 # Singleton
 cache_service = CacheService()

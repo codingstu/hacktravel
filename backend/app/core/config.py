@@ -42,25 +42,25 @@ class Settings(BaseSettings):
     LLM_PRIMARY_MAX_LEGS: int = 8
     LLM_PRIMARY_MAX_TIPS_PER_LEG: int = 2
 
-    # First backup: NVIDIA NIM, prioritizing speed/quality balance then stronger reasoning.
+    # First backup: configurable (may be NVIDIA NIM or SiliconFlow depending on .env)
     LLM_BACKUP1_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
     LLM_BACKUP1_API_KEY: str = ""
     LLM_BACKUP1_MODEL: str = "meta/llama-3.1-70b-instruct"
-    LLM_BACKUP1_FALLBACK_MODELS: str = "nvidia/nemotron-4-340b-instruct"
-    LLM_BACKUP1_TIMEOUT: int = 22
+    LLM_BACKUP1_FALLBACK_MODELS: str = ""
+    LLM_BACKUP1_TIMEOUT: int = 30
 
-    # Second backup: SiliconFlow, prioritizing fast instruct models before DeepSeek reasoning.
+    # Second backup: configurable
     LLM_BACKUP2_BASE_URL: str = "https://api.siliconflow.cn/v1"
     LLM_BACKUP2_API_KEY: str = ""
-    LLM_BACKUP2_MODEL: str = "Qwen/Qwen2.5-72B-Instruct"
-    LLM_BACKUP2_FALLBACK_MODELS: str = "deepseek-ai/DeepSeek-V3,deepseek-ai/DeepSeek-R1"
-    LLM_BACKUP2_TIMEOUT: int = 28
+    LLM_BACKUP2_MODEL: str = "deepseek-ai/DeepSeek-V3"
+    LLM_BACKUP2_FALLBACK_MODELS: str = ""
+    LLM_BACKUP2_TIMEOUT: int = 30
 
     LLM_TEMPERATURE: float = 0.2
 
     # ── Rate Limiting ────────────────────────────────────
-    RATE_LIMIT_ANONYMOUS: int = 10  # per hour
-    RATE_LIMIT_AUTHENTICATED: int = 50  # per hour
+    RATE_LIMIT_ANONYMOUS: int = 200  # per hour (generous for dev; tighten in prod)
+    RATE_LIMIT_AUTHENTICATED: int = 500  # per hour
 
     # ── Google Maps ──────────────────────────────────────
     GOOGLE_GEOCODING_API_KEY: str = ""
