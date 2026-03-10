@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     LLM_PRIMARY_API_KEY: str = ""
     LLM_PRIMARY_MODEL: str = "gemini-3-flash"
     LLM_PRIMARY_FALLBACK_MODELS: str = "gpt-5.2"
-    LLM_PRIMARY_TIMEOUT: int = 35
+    LLM_PRIMARY_TIMEOUT: int = 25
     LLM_PRIMARY_REASONING_EFFORT: str = ""
     LLM_PRIMARY_MAX_COMPLETION_TOKENS: int = 0
     LLM_PRIMARY_MAX_LEGS: int = 6

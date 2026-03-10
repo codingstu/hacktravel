@@ -3,6 +3,7 @@
  * 对接后端 FastAPI 服务
  */
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import {
   ItineraryGenerateRequest,
   ItineraryGenerateResponse,
@@ -29,24 +30,64 @@ import {
   DeleteItineraryResponse,
 } from './types';
 
-// 开发环境下 Android 模拟器用 10.0.2.2，iOS 用 localhost，Web 用当前 Host
+/**
+ * 获取后端 API 基地址
+ *
+ * 开发环境策略：
+ * - Web: 使用浏览器 hostname（与 Expo dev server 同一主机）
+ * - Android 模拟器: 10.0.2.2（模拟器到宿主机的固定别名）
+ * - 真机 (iOS/Android via Expo Go): 从 Expo debuggerHost 提取开发机 IP
+ *   debuggerHost 格式: "192.168.x.x:8081"，我们取 IP 部分拼 API 端口
+ * - 兜底: localhost（仅在 iOS 模拟器上有效）
+ */
 const getBaseUrl = (): string => {
   if (__DEV__) {
-    if (Platform.OS === 'android') {
-      return 'http://10.0.2.2:8001';
-    }
+    // Web 端：直接用当前页面的 hostname
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       const host = window.location.hostname;
       return `http://${host}:8001`;
     }
+
+    // Android 模拟器专用
+    if (Platform.OS === 'android') {
+      // 先尝试从 Expo debuggerHost 获取真实 IP（适用于真机）
+      const debuggerHost =
+        Constants.expoGoConfig?.debuggerHost ??
+        (Constants as any).manifest?.debuggerHost;
+      if (debuggerHost) {
+        const host = debuggerHost.split(':')[0];
+        if (host && host !== 'localhost' && host !== '127.0.0.1') {
+          return `http://${host}:8001`;
+        }
+      }
+      return 'http://10.0.2.2:8001';
+    }
+
+    // iOS 真机 / 模拟器：从 Expo debuggerHost 获取开发机局域网 IP
+    const debuggerHost =
+      Constants.expoGoConfig?.debuggerHost ??
+      (Constants as any).manifest?.debuggerHost;
+    if (debuggerHost) {
+      const host = debuggerHost.split(':')[0];
+      if (host && host !== 'localhost' && host !== '127.0.0.1') {
+        return `http://${host}:8001`;
+      }
+    }
+
+    // 兜底（仅 iOS 模拟器生效）
     return 'http://localhost:8001';
   }
-  // TODO: 生产环境 URL
+  // 生产环境
   return 'https://api.hacktravel.app';
 };
 
 const BASE_URL = getBaseUrl();
-const TIMEOUT_MS = 75_000; // 留足时间给后端降级链（单模型35s × 2次尝试 = 70s < 75s）
+const TIMEOUT_MS = 60_000; // 前端总超时 60s（后端单模型最多 45s，留足网络延迟余量）
+
+// 开发时打印 API 地址，方便排查连接问题
+if (__DEV__) {
+  console.log('[HackTravel API] BASE_URL =', BASE_URL);
+}
 
 class ApiError extends Error {
   code: string;
@@ -98,7 +139,7 @@ function generateIdempotencyKey(): string {
 }
 
 /**
- * 带超时的 fetch
+ * 带超时的 fetch — 增加网络连接失败的友好错误
  */
 async function fetchWithTimeout(
   url: string,
@@ -114,6 +155,16 @@ async function fetchWithTimeout(
       signal: controller.signal,
     });
     return response;
+  } catch (err: any) {
+    // 区分超时 vs 网络不可达
+    if (err?.name === 'AbortError') {
+      throw err; // 超时，上层会处理为 modelTimeout
+    }
+    // TypeError: Network request failed — 典型的连接失败（手机访问不到后端）
+    if (__DEV__) {
+      console.error(`[HackTravel API] fetch failed: ${url}`, err?.message);
+    }
+    throw new Error(`无法连接服务器 (${BASE_URL})，请确保后端已启动且手机与电脑在同一局域网`);
   } finally {
     clearTimeout(timer);
   }

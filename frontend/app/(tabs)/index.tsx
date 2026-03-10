@@ -830,10 +830,11 @@ export default function GenerateScreen() {
               onPress={async () => {
                 if (!result) return;
                 try {
-                  const deviceId = (await AsyncStorage.getItem('device_id')) || '';
+                  // 确保 device_id 存在（若用户未打开过 Profile 页面则自动生成）
+                  let deviceId = await AsyncStorage.getItem('device_id');
                   if (!deviceId) {
-                    setToastMessage(t('common.error'));
-                    return;
+                    deviceId = `dev_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+                    await AsyncStorage.setItem('device_id', deviceId);
                   }
                   const resp = await saveItinerary({
                     device_id: deviceId,
@@ -849,7 +850,8 @@ export default function GenerateScreen() {
                   } else {
                     setToastMessage(resp.message || t('profile.saveFail'));
                   }
-                } catch {
+                } catch (err: any) {
+                  if (__DEV__) console.error('[Save]', err?.message);
                   setToastMessage(t('profile.saveFail'));
                 }
               }}>
