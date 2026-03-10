@@ -1,5 +1,5 @@
 /**
- * Tab2 抄作业 — 社区精选路线（v4 真实后端数据）
+ * Tab2 Travel Guides — 社区精选路线（v8 Stitch 统一风格）
  *
  * 数据源：
  * - 优先从后端 GET /v1/community/routes 加载真实路线
@@ -7,9 +7,9 @@
  * - "我也要抄" 调用 POST /v1/community/routes/:id/copy
  * - copy_count 由 Redis 持久化，真实递增
  *
- * 设计语言：杂志风、去 emoji、卡片带左侧色条
+ * 设计语言：Stitch — 圆角 xl 卡片、primary/10 背景、timeline dot+ring
  */
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import {
   Modal,
   Image,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -42,6 +43,8 @@ import {
 } from '@/services/api';
 import type { CommunityRoute, CommunityRouteCard, ItineraryLeg, PlaceDetailResponse } from '@/services/types';
 import { formatMoney, formatMoneyWithCode, getTimezoneLabel } from '@/utils/format';
+import { getDestinationImage } from '@/services/images';
+import { t } from '@/services/i18n';
 
 const ACTIVITY_ICON_MAP: Record<string, { name: string; color: string }> = {
   food: { name: 'restaurant', color: '#E88A3A' },
@@ -54,7 +57,22 @@ const ACTIVITY_ICON_MAP: Record<string, { name: string; color: string }> = {
 
 type DataSource = 'api' | 'preset';
 
+/** Category tab keys for filtering */
+type CategoryTab = 'verified' | 'hot' | 'bestSellers' | 'budget';
+
+/** Filter chip keys */
+type FilterTag = 'budget' | 'foodie' | 'hiking' | 'photo';
+
+/** Tag matching map: filter key → matching Chinese tag keywords */
+const FILTER_TAG_MATCH: Record<FilterTag, string[]> = {
+  budget: ['穷游', '穷鬼', '省钱', '极限'],
+  foodie: ['吃货', '美食', '夜市', '拉面'],
+  hiking: ['暴走', '徒步', '城市漫游', '山'],
+  photo: ['打卡', '摄影', '壁画', '出片'],
+};
+
 export default function CommunityScreen() {
+  const insets = useSafeAreaInsets();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [routes, setRoutes] = useState<CommunityRouteCard[]>([]);
   const [expandedRouteDetail, setExpandedRouteDetail] = useState<CommunityRoute | null>(null);
@@ -62,6 +80,40 @@ export default function CommunityScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [dataSource, setDataSource] = useState<DataSource>('preset');
   const [copyingId, setCopyingId] = useState<string | null>(null);
+
+  // ── Tab & Filter state ──
+  const [selectedCategory, setSelectedCategory] = useState<CategoryTab>('hot');
+  const [selectedFilter, setSelectedFilter] = useState<FilterTag | null>(null);
+
+  /** Filtered & sorted routes based on category + filter */
+  const displayRoutes = useMemo(() => {
+    let list = [...routes];
+
+    // Filter chip
+    if (selectedFilter) {
+      const keywords = FILTER_TAG_MATCH[selectedFilter];
+      list = list.filter(r =>
+        r.tags.some(tag => keywords.some(kw => tag.includes(kw))),
+      );
+    }
+
+    // Category sort/filter
+    switch (selectedCategory) {
+      case 'verified':
+        // Show all, verified = copy_count >= 100, sorted by newest (keep original order)
+        break;
+      case 'hot':
+        list.sort((a, b) => b.copy_count - a.copy_count);
+        break;
+      case 'bestSellers':
+        list.sort((a, b) => b.copy_count - a.copy_count);
+        break;
+      case 'budget':
+        list.sort((a, b) => a.budget.amount - b.budget.amount);
+        break;
+    }
+    return list;
+  }, [routes, selectedCategory, selectedFilter]);
 
   // ── Place Detail Modal ──
   const [placeModalVisible, setPlaceModalVisible] = useState(false);
@@ -81,7 +133,18 @@ export default function CommunityScreen() {
         longitude: leg.place.longitude,
       });
       setPlaceDetail(detail);
-    } catch { /* ignore */ }
+    } catch {
+      // Still show modal with leg info even if API fails
+      setPlaceDetail({
+        name: leg.place.name,
+        description: '',
+        image_url: null,
+        wiki_url: null,
+        map_url: leg.place.latitude && leg.place.longitude
+          ? `https://www.google.com/maps/search/?api=1&query=${leg.place.latitude},${leg.place.longitude}`
+          : null,
+      });
+    }
     setPlaceDetailLoading(false);
   }, []);
 
@@ -108,7 +171,7 @@ export default function CommunityScreen() {
 
   const _fallbackToPresets = () => {
     setRoutes(PRESET_ROUTES.map(r => ({
-      id: r.id,
+      id: `community-${r.destination}-${r.total_hours}h`,
       title: r.title,
       destination: r.destination,
       total_hours: r.total_hours,
@@ -140,14 +203,27 @@ export default function CommunityScreen() {
         const detail = await fetchCommunityRouteDetail(id);
         setExpandedRouteDetail(detail);
       } catch {
-        const preset = PRESET_ROUTES.find(r => r.id === id);
-        if (preset) setExpandedRouteDetail(preset);
+        _findPresetDetail(id);
       }
     } else {
-      const preset = PRESET_ROUTES.find(r => r.id === id);
-      if (preset) setExpandedRouteDetail(preset);
+      // Try API first even in preset mode for real legs/map data
+      try {
+        const detail = await fetchCommunityRouteDetail(id);
+        setExpandedRouteDetail(detail);
+      } catch {
+        _findPresetDetail(id);
+      }
     }
   }, [expandedId, dataSource]);
+
+  /** Find preset route by community-style ID or original ID */
+  const _findPresetDetail = (id: string) => {
+    // Match by community-style ID: "community-{destination}-{hours}h"
+    const preset = PRESET_ROUTES.find(r =>
+      `community-${r.destination}-${r.total_hours}h` === id || r.id === id,
+    );
+    if (preset) setExpandedRouteDetail(preset);
+  };
 
   /** "我也要抄" — 调用后端 API */
   const handleCopy = useCallback(async (routeId: string) => {
@@ -162,22 +238,22 @@ export default function CommunityScreen() {
         );
         if (result.route.map?.google_maps_deeplink) {
           Alert.alert(
-            '抄作业成功',
-            `已有 ${result.copy_count} 人抄了这条路线！\n是否打开 Google Maps 导航？`,
+            t('guides.copySuccess'),
+            `${result.copy_count} ${t('guides.saves', { count: result.copy_count })}`,
             [
-              { text: '稍后再看', style: 'cancel' },
+              { text: t('plan.cancel'), style: 'cancel' },
               {
-                text: '打开导航',
+                text: t('guides.navigate'),
                 onPress: () => Linking.openURL(result.route.map!.google_maps_deeplink),
               },
             ],
           );
         } else {
-          Alert.alert('抄作业成功', `已有 ${result.copy_count} 人抄了这条路线！`);
+          Alert.alert(t('guides.copySuccess'), `${result.copy_count} ${t('guides.saves', { count: result.copy_count })}`);
         }
       }
     } catch {
-      Alert.alert('抄作业成功', '路线已收藏到你的规划中');
+      Alert.alert(t('guides.copySuccess'), t('guides.copySuccess'));
     } finally {
       setCopyingId(null);
     }
@@ -187,7 +263,7 @@ export default function CommunityScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={styles.loadingText}>正在加载精选路线…</Text>
+        <Text style={styles.loadingText}>{t('guides.loading')}</Text>
       </View>
     );
   }
@@ -204,30 +280,78 @@ export default function CommunityScreen() {
           tintColor={Colors.primary}
         />
       }>
-      {/* 头部 */}
-      <LinearGradient
-        colors={[Colors.gradient.heroStart, Colors.gradient.heroEnd]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.header}>
-        <View style={styles.headerTopRow}>
-          <View style={styles.headerPill}>
-            <Ionicons name="sparkles-outline" size={12} color={Colors.accent} />
-            <Text style={styles.headerPillText}>Community Picks</Text>
-          </View>
+      {/* 头部 — Stitch 粘性标题栏 + 分类 Tabs */}
+      <View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
+        <View style={styles.headerRow}>
+          <Text style={styles.headerTitle}>{t('guides.title')}</Text>
           {dataSource === 'api' && (
             <View style={styles.liveIndicator}>
               <View style={styles.liveDot} />
-              <Text style={styles.liveText}>实时 · {routes.length} 条</Text>
+              <Text style={styles.liveText}>{t('guides.live')} · {routes.length}</Text>
             </View>
           )}
         </View>
-        <Text style={styles.headerTitle}>精选路线</Text>
-        <Text style={styles.headerSub}>被验证过的极限行程，直接抄作业省心省力</Text>
-      </LinearGradient>
+        {/* Category Tabs */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.catTabRow}>
+          {([
+            { key: 'verified' as CategoryTab, label: t('guides.verified') },
+            { key: 'hot' as CategoryTab, label: t('guides.hot') },
+            { key: 'bestSellers' as CategoryTab, label: t('guides.bestSellers') },
+            { key: 'budget' as CategoryTab, label: t('guides.budget') },
+          ]).map((tab) => (
+            <TouchableOpacity
+              key={tab.key}
+              style={styles.catTab}
+              activeOpacity={0.7}
+              onPress={() => setSelectedCategory(tab.key)}>
+              <Text style={[styles.catTabText, selectedCategory === tab.key && styles.catTabTextActive]}>
+                {tab.label}
+              </Text>
+              {selectedCategory === tab.key && <View style={styles.catTabBar} />}
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
+      {/* Quick Filter Tags */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filterRow}>
+        {([
+          { key: 'budget' as FilterTag, icon: 'cash-outline', label: t('guides.filterBudget') },
+          { key: 'foodie' as FilterTag, icon: 'restaurant-outline', label: t('guides.filterFoodie') },
+          { key: 'hiking' as FilterTag, icon: 'walk-outline', label: t('guides.filterHiking') },
+          { key: 'photo' as FilterTag, icon: 'camera-outline', label: t('guides.filterPhoto') },
+        ]).map((f) => {
+          const isActive = selectedFilter === f.key;
+          return (
+            <TouchableOpacity
+              key={f.key}
+              style={[styles.filterChip, isActive && styles.filterChipActive]}
+              activeOpacity={0.7}
+              onPress={() => setSelectedFilter(prev => prev === f.key ? null : f.key)}>
+              <Ionicons name={f.icon as any} size={14} color={isActive ? Colors.primary : Colors.textSecondary} />
+              <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>{f.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
 
       {/* 路线卡片 */}
-      {routes.map(route => (
+      {displayRoutes.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Ionicons name="search-outline" size={36} color={Colors.textLight} />
+          <Text style={styles.emptyText}>{t('guides.noResults')}</Text>
+          <TouchableOpacity onPress={() => { setSelectedFilter(null); setSelectedCategory('hot'); }}>
+            <Text style={styles.emptyReset}>{t('guides.resetFilter')}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        displayRoutes.map(route => (
         <RouteCard
           key={route.id}
           route={route}
@@ -238,12 +362,13 @@ export default function CommunityScreen() {
           onCopy={() => handleCopy(route.id)}
           onPressPlace={handlePressPlace}
         />
-      ))}
+      ))
+      )}
 
       {/* 底部说明 */}
       <View style={styles.footer}>
         <Text style={styles.footerText}>
-          更多路线持续更新中 · 你生成的路线也会被收录
+          {t('guides.dataFromPreset')}
         </Text>
       </View>
 
@@ -264,7 +389,7 @@ export default function CommunityScreen() {
             {placeDetailLoading ? (
               <View style={styles.modalLoading}>
                 <ActivityIndicator size="large" color={Colors.primary} />
-                <Text style={styles.modalLoadingText}>正在加载地点详情…</Text>
+                <Text style={styles.modalLoadingText}>{t('guides.placeDetailLoading')}</Text>
               </View>
             ) : selectedLeg && (
               <ScrollView showsVerticalScrollIndicator={false}>
@@ -307,14 +432,14 @@ export default function CommunityScreen() {
 
                 {placeDetail?.description ? (
                   <View style={styles.modalSection}>
-                    <Text style={styles.modalSectionTitle}>简介</Text>
+                    <Text style={styles.modalSectionTitle}>Description</Text>
                     <Text style={styles.modalDesc}>{placeDetail.description}</Text>
                   </View>
                 ) : null}
 
                 {selectedLeg.tips && selectedLeg.tips.length > 0 && (
                   <View style={styles.modalSection}>
-                    <Text style={styles.modalSectionTitle}>旅行者贴士</Text>
+                    <Text style={styles.modalSectionTitle}>Travel Tips</Text>
                     {selectedLeg.tips.map((tip, i) => (
                       <View key={i} style={styles.modalTipRow}>
                         <Ionicons name="chatbubble-ellipses-outline" size={14} color={Colors.primary} />
@@ -377,27 +502,51 @@ function RouteCard({
   onCopy: () => void;
   onPressPlace: (leg: ItineraryLeg) => void;
 }) {
+  const [imgError, setImgError] = useState(false);
+  const imageUri = imgError
+    ? 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=600&h=280&fit=crop&auto=format&q=80'
+    : getDestinationImage(route.destination || route.title, 600, 280);
   return (
     <View style={styles.card}>
-      {/* accent 色条 */}
-      <View style={styles.accentStrip} />
+      {/* Cover image + gradient overlay */}
+      <View style={styles.cardCover}>
+        <Image
+          source={{ uri: imageUri }}
+          style={StyleSheet.absoluteFillObject}
+          resizeMode="cover"
+          onError={() => setImgError(true)}
+        />
+        <LinearGradient
+          colors={['rgba(0,0,0,0.15)', 'rgba(0,0,0,0.45)']}
+          style={StyleSheet.absoluteFillObject}
+        />
+        <View style={styles.cardBadge}>
+          <Text style={styles.cardBadgeText}>
+            {route.copy_count >= 400 ? 'HOT' : route.copy_count >= 200 ? 'BEST SELLER' : 'VERIFIED'}
+          </Text>
+        </View>
+      </View>
 
       <View style={styles.cardBody}>
-        {/* 头部 */}
         <TouchableOpacity onPress={onToggle} activeOpacity={0.7}>
           <View style={styles.cardTop}>
-            <View style={styles.badgeRow}>
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>
-                  {route.copy_count >= 400 ? '爆款' : route.copy_count >= 200 ? '热门' : '精选'}
-                </Text>
-              </View>
+            <View style={styles.cardTitleRow}>
+              <Text style={styles.cardTitle}>{route.title}</Text>
+              <Ionicons name="heart-outline" size={20} color={Colors.textLight} />
             </View>
-            <Text style={styles.cardTitle}>{route.title}</Text>
             <View style={styles.metaRow}>
-              <MetaChip label={`${route.total_hours}H`} />
-              <MetaChip label={formatMoneyWithCode(route.budget)} />
-              <MetaChip label={`${route.copy_count} 人已抄`} />
+              <View style={styles.metaItem}>
+                <Ionicons name="time-outline" size={12} color={Colors.textSecondary} />
+                <Text style={styles.metaItemText}>{route.total_hours}H</Text>
+              </View>
+              <View style={styles.metaItem}>
+                <Ionicons name="cash-outline" size={12} color={Colors.textSecondary} />
+                <Text style={styles.metaItemText}>{formatMoneyWithCode(route.budget)}</Text>
+              </View>
+              <View style={styles.metaItem}>
+                <Ionicons name="bookmark-outline" size={12} color={Colors.textSecondary} />
+                <Text style={styles.metaItemText}>{t('guides.saves', { count: route.copy_count })}</Text>
+              </View>
             </View>
             <View style={styles.tagRow}>
               {route.tags.map(tag => (
@@ -409,7 +558,7 @@ function RouteCard({
           </View>
           <View style={styles.toggleRow}>
             <Text style={styles.toggleText}>
-              {expanded ? '收起' : '查看完整路线'}
+              {expanded ? t('guides.hideDetails') : t('guides.viewDetails')}
             </Text>
             <Ionicons
               name={expanded ? 'chevron-up' : 'chevron-down'}
@@ -425,7 +574,7 @@ function RouteCard({
             {!detail ? (
               <View style={styles.detailLoading}>
                 <ActivityIndicator size="small" color={Colors.primary} />
-                <Text style={styles.detailLoadingText}>正在加载路线详情…</Text>
+                <Text style={styles.detailLoadingText}>{t('common.loading')}</Text>
               </View>
             ) : (
               <>
@@ -444,7 +593,7 @@ function RouteCard({
                   <LegRow key={i} leg={leg} isLast={i === detail.legs.length - 1} onPressPlace={onPressPlace} />
                 ))}
 
-                {/* 操作 */}
+                {/* Stitch 操作按钮 */}
                 <View style={styles.actionRow}>
                   <TouchableOpacity
                     style={[styles.copyBtn, copying && styles.copyBtnDisabled]}
@@ -452,21 +601,21 @@ function RouteCard({
                     onPress={onCopy}
                     disabled={copying}>
                     {copying ? (
-                      <ActivityIndicator size="small" color="#fff" />
+                      <ActivityIndicator size="small" color={Colors.primary} />
                     ) : (
                       <>
-                        <Ionicons name="copy-outline" size={15} color="#fff" />
-                        <Text style={styles.copyBtnText}>我也要抄</Text>
+                        <Ionicons name="copy-outline" size={15} color={Colors.primary} />
+                        <Text style={styles.copyBtnText}>{t('guides.copyItinerary')}</Text>
                       </>
                     )}
                   </TouchableOpacity>
                   {detail.map?.google_maps_deeplink ? (
                     <TouchableOpacity
-                      style={styles.shareBtn}
+                      style={styles.navBtn}
                       activeOpacity={0.7}
                       onPress={() => Linking.openURL(detail.map!.google_maps_deeplink)}>
-                      <Ionicons name="navigate-outline" size={15} color={Colors.primary} />
-                      <Text style={styles.shareBtnText}>导航</Text>
+                      <Ionicons name="navigate-outline" size={15} color="#fff" />
+                      <Text style={styles.navBtnText}>{t('guides.navigate')}</Text>
                     </TouchableOpacity>
                   ) : null}
                 </View>
@@ -475,14 +624,6 @@ function RouteCard({
           </View>
         )}
       </View>
-    </View>
-  );
-}
-
-function MetaChip({ label }: { label: string }) {
-  return (
-    <View style={styles.metaChip}>
-      <Text style={styles.metaChipText}>{label}</Text>
     </View>
   );
 }
@@ -496,15 +637,18 @@ function LegRow({ leg, isLast, onPressPlace }: { leg: ItineraryLeg; isLast: bool
 
   return (
     <View style={styles.legRow}>
-      {/* 时间轴 */}
+      {/* Stitch 时间轴 — dot + ring */}
       <View style={styles.legRail}>
-        <View style={[styles.legDot, { backgroundColor: iconInfo.color }]}>
-          <Ionicons name={iconInfo.name as any} size={10} color="#fff" />
+        <View style={[styles.legDotRing, { borderColor: `${iconInfo.color}30` }]}>
+          <View style={[styles.legDot, { backgroundColor: iconInfo.color }]} />
         </View>
         {!isLast && <View style={styles.legLine} />}
       </View>
       {/* 信息 */}
       <View style={[styles.legInfo, isLast && { paddingBottom: 0 }]}>
+        <View style={styles.legTimeRow}>
+          <Text style={styles.legTime}>{startTime}</Text>
+        </View>
         <View style={styles.legMain}>
           <TouchableOpacity onPress={() => onPressPlace(leg)} activeOpacity={0.7} style={styles.legNameRow}>
             <Text style={styles.legName}>{leg.place.name}</Text>
@@ -512,7 +656,6 @@ function LegRow({ leg, isLast, onPressPlace }: { leg: ItineraryLeg; isLast: bool
           </TouchableOpacity>
           <Text style={styles.legCost}>{formatMoney(leg.estimated_cost, true)}</Text>
         </View>
-        <Text style={styles.legTime}>{startTime}</Text>
       </View>
     </View>
   );
@@ -524,7 +667,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   scroll: {
-    paddingBottom: 100,
+    paddingBottom: 120,
   },
 
   // ── Loading
@@ -540,52 +683,31 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
 
-  // ── Header
+  // ── Header — Stitch sticky
   header: {
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.lg,
-    borderBottomLeftRadius: BorderRadius.xl,
-    borderBottomRightRadius: BorderRadius.xl,
-    marginBottom: Spacing.md,
+    backgroundColor: Colors.background,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.tagActive.border,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: 0,
   },
-  headerTopRow: {
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Spacing.sm,
-  },
-  headerPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF20',
-    borderRadius: BorderRadius.full,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 5,
-    gap: 6,
-  },
-  headerPillText: {
-    fontSize: FontSize.xs,
-    color: Colors.accent,
-    fontWeight: FontWeight.semibold,
-    letterSpacing: 0.2,
+    paddingVertical: Spacing.sm,
   },
   headerTitle: {
-    fontSize: FontSize.title,
+    fontSize: FontSize.xl,
     fontWeight: FontWeight.bold,
-    color: Colors.accent,
-    letterSpacing: -0.5,
-  },
-  headerSub: {
-    fontSize: FontSize.sm,
-    color: Colors.textOnDark,
-    marginTop: Spacing.xs,
+    color: Colors.text,
+    letterSpacing: -0.3,
   },
   liveIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: Colors.status.liveBg,
+    backgroundColor: Colors.tagActive.bg,
     borderRadius: BorderRadius.full,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 4,
@@ -598,25 +720,101 @@ const styles = StyleSheet.create({
   },
   liveText: {
     fontSize: FontSize.xs,
-    color: Colors.status.liveText,
-    fontWeight: FontWeight.semibold,
+    color: Colors.primary,
+    fontWeight: FontWeight.bold,
+    letterSpacing: 0.5,
   },
 
-  // ── Card
-  card: {
+  // ── Category Tabs — Stitch underline style
+  catTabRow: {
     flexDirection: 'row',
+    gap: Spacing.xl,
+    paddingTop: Spacing.sm,
+  },
+  catTab: {
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
+  },
+  catTabText: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textLight,
+  },
+  catTabTextActive: {
+    color: Colors.primary,
+    fontWeight: FontWeight.bold,
+  },
+  catTabBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 2,
+    backgroundColor: Colors.primary,
+    borderRadius: 1,
+  },
+
+  // ── Quick Filters — Stitch pill chips
+  filterRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    height: 36,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.surfaceElevated,
+  },
+  filterChipActive: {
+    backgroundColor: Colors.tagActive.bg,
+    borderWidth: 1,
+    borderColor: Colors.tagActive.border,
+  },
+  filterChipText: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.medium,
+    color: Colors.textSecondary,
+  },
+  filterChipTextActive: {
+    color: Colors.primary,
+  },
+
+  // ── Card — Stitch rounded-xl with cover
+  card: {
     marginHorizontal: Spacing.lg,
-    marginBottom: Spacing.md,
-    borderRadius: BorderRadius.lg,
+    marginBottom: Spacing.lg,
+    borderRadius: BorderRadius.xl,
     backgroundColor: Colors.surface,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: Colors.tagActive.border,
     overflow: 'hidden',
-    ...Shadow.md,
+    ...Shadow.sm,
   },
-  accentStrip: {
-    width: 4,
+  cardCover: {
+    width: '100%',
+    height: 180,
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+    padding: Spacing.md,
+    overflow: 'hidden',
+  },
+  cardBadge: {
     backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+  },
+  cardBadgeText: {
+    fontSize: 10,
+    color: '#fff',
+    fontWeight: FontWeight.bold,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
   cardBody: {
     flex: 1,
@@ -624,42 +822,31 @@ const styles = StyleSheet.create({
   cardTop: {
     padding: Spacing.lg,
   },
-  badgeRow: {
+  cardTitleRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     marginBottom: Spacing.sm,
-  },
-  badge: {
-    backgroundColor: Colors.status.progressBg,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.xs,
-  },
-  badgeText: {
-    fontSize: FontSize.xs,
-    color: Colors.status.progressText,
-    fontWeight: FontWeight.semibold,
   },
   cardTitle: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
     color: Colors.text,
-    marginBottom: Spacing.sm,
     lineHeight: 24,
+    flex: 1,
+    marginRight: Spacing.sm,
   },
   metaRow: {
     flexDirection: 'row',
-    gap: Spacing.sm,
+    gap: Spacing.md,
     marginBottom: Spacing.sm,
   },
-  metaChip: {
-    backgroundColor: Colors.tag.bg,
-    borderWidth: 1,
-    borderColor: Colors.tag.border,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 3,
-    borderRadius: BorderRadius.xs,
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
-  metaChipText: {
+  metaItemText: {
     fontSize: FontSize.xs,
     color: Colors.textSecondary,
     fontWeight: FontWeight.medium,
@@ -667,18 +854,19 @@ const styles = StyleSheet.create({
   tagRow: {
     flexDirection: 'row',
     gap: Spacing.sm,
+    flexWrap: 'wrap',
   },
   tag: {
     backgroundColor: Colors.tagActive.bg,
     borderWidth: 1,
     borderColor: Colors.tagActive.border,
     paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.xs,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.full,
   },
   tagText: {
     fontSize: FontSize.xs,
-    color: Colors.tag.text,
+    color: Colors.primary,
     fontWeight: FontWeight.semibold,
   },
   toggleRow: {
@@ -710,32 +898,44 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
   },
+
+  // ── Timeline — Stitch dot + ring
   legRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
   },
   legRail: {
-    width: 24,
+    width: 28,
     alignItems: 'center',
   },
-  legDot: {
+  legDotRing: {
     width: 20,
     height: 20,
     borderRadius: 10,
+    borderWidth: 4,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 2,
+    backgroundColor: Colors.surface,
+  },
+  legDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
   },
   legLine: {
-    width: 1.5,
+    width: 2,
     flex: 1,
-    backgroundColor: Colors.divider,
+    backgroundColor: Colors.tagActive.border,
     marginVertical: 2,
   },
   legInfo: {
     flex: 1,
     marginLeft: Spacing.sm,
-    paddingBottom: Spacing.md,
+    paddingBottom: Spacing.lg,
+  },
+  legTimeRow: {
+    marginBottom: 2,
   },
   legMain: {
     flexDirection: 'row',
@@ -743,9 +943,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   legName: {
-    fontSize: FontSize.md,
+    fontSize: FontSize.sm,
     color: Colors.text,
-    fontWeight: FontWeight.medium,
+    fontWeight: FontWeight.bold,
     flex: 1,
   },
   legCost: {
@@ -757,10 +957,10 @@ const styles = StyleSheet.create({
   legTime: {
     fontSize: FontSize.xs,
     color: Colors.textLight,
-    marginTop: 2,
+    fontWeight: FontWeight.bold,
   },
 
-  // ── Actions
+  // ── Actions — Stitch Copy + Navigate
   actionRow: {
     flexDirection: 'row',
     marginTop: Spacing.lg,
@@ -771,34 +971,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.tagActive.bg,
     paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.sm,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: Colors.tagActive.border,
     gap: Spacing.xs,
-    ...Shadow.colored(Colors.primary),
   },
   copyBtnDisabled: {
     opacity: 0.6,
   },
   copyBtnText: {
-    color: '#fff',
+    color: Colors.primary,
     fontWeight: FontWeight.bold,
-    fontSize: FontSize.md,
+    fontSize: FontSize.sm,
   },
-  shareBtn: {
+  navBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.primaryLight,
+    backgroundColor: Colors.primary,
     paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.sm,
+    borderRadius: BorderRadius.xl,
     gap: Spacing.xs,
   },
-  shareBtnText: {
-    color: Colors.primary,
+  navBtnText: {
+    color: '#fff',
     fontWeight: FontWeight.bold,
-    fontSize: FontSize.md,
+    fontSize: FontSize.sm,
   },
 
   // ── Footer
@@ -811,15 +1012,31 @@ const styles = StyleSheet.create({
     color: Colors.textLight,
   },
 
+  // ── Empty state
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: Spacing.hero,
+    gap: Spacing.md,
+  },
+  emptyText: {
+    fontSize: FontSize.md,
+    color: Colors.textSecondary,
+  },
+  emptyReset: {
+    fontSize: FontSize.sm,
+    color: Colors.primary,
+    fontWeight: FontWeight.bold,
+  },
+
   // ── Timezone Banner
   tzBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    backgroundColor: Colors.primaryLight,
+    backgroundColor: Colors.tagActive.bg,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.sm,
+    borderRadius: BorderRadius.md,
     marginBottom: Spacing.md,
   },
   tzBannerText: {
@@ -836,10 +1053,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  // ── Place Detail Modal
+  // ── Place Detail Modal — Stitch
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'flex-end',
   },
   modalContent: {
@@ -959,7 +1176,7 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     backgroundColor: Colors.primary,
     paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.xl,
   },
   modalActionText: {
     fontSize: FontSize.sm,
@@ -972,9 +1189,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.sm,
-    backgroundColor: Colors.primaryLight,
+    backgroundColor: Colors.tagActive.bg,
     paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.xl,
   },
   modalActionTextSecondary: {
     fontSize: FontSize.sm,

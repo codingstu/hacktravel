@@ -1,11 +1,15 @@
 """LLM Gateway – multi-provider routing with provider/model-level degradation.
 
 Optimized degradation chain:
-  1. OpenAI-compatible gateway: gpt-5.4 (short timeout, fail fast)
-  2. NVIDIA NIM: Llama-3.1-70B-Instruct → Nemotron-4-340B-Instruct
-  3. SiliconFlow: Qwen2.5-72B-Instruct → DeepSeek-V3 → DeepSeek-R1
+  1. ShowQR gateway (primary): qwen3-235b-a22b-instruct → deepseek-v3.1 → deepseek-v3.2
+  2. SiliconFlow (保底): Qwen2.5-72B-Instruct → DeepSeek-V3 → DeepSeek-R1
+  3. NVIDIA NIM (last resort): z-ai/glm4.7
 
-Trigger: timeout / 5xx / connection error / JSON parse failure.
+Smart skip: if a gateway is UNREACHABLE (ConnectTimeout/ConnectError), skip all
+remaining models on that gateway. ReadTimeout does NOT trigger gateway skip
+(other models on same gateway may respond faster).
+
+Trigger: timeout / 5xx / connection error / JSON parse failure / gateway error.
 Final fallback: cached itinerary (handled by caller).
 """
 from __future__ import annotations
@@ -85,7 +89,7 @@ def _derive_provider_name(base_url: str, fallback: str) -> str:
         elif "siliconflow" in domain:
             return "siliconflow"
         elif "openai" in domain or "showqr" in domain:
-            return "primary"
+            return "openai"
         return fallback
     except Exception:
         return fallback
@@ -95,16 +99,16 @@ def _build_provider_chain() -> list[LLMProviderConfig]:
     """Build ordered provider list with provider/model degradation.
 
     Strategy:
-    1. OpenAI-compatible primary gateway: strongest model, fail fast
-    2. Backup1: first external fallback (configured via .env)
-    3. Backup2: second external fallback (configured via .env)
+    1. ShowQR primary: fast models (DeepSeek-V3.1, Qwen3, etc.)
+    2. Backup1: SiliconFlow 保底 (Qwen, DeepSeek)
+    3. Backup2: NVIDIA NIM (last resort)
     Provider names are auto-derived from the base URL domain.
     """
     chain: list[LLMProviderConfig] = []
 
     _append_provider_models(
         chain,
-        provider_name="primary",
+        provider_name=_derive_provider_name(settings.LLM_PRIMARY_BASE_URL, "primary"),
         base_url=settings.LLM_PRIMARY_BASE_URL,
         api_key=settings.LLM_PRIMARY_API_KEY,
         primary_model=settings.LLM_PRIMARY_MODEL,
@@ -155,18 +159,16 @@ class LLMResult:
 # ── System & User prompt construction ────────────────────
 
 SYSTEM_PROMPT = """\
-你是一位经验丰富的特种兵旅行规划师。
-
-仅输出 JSON 对象，不允许任何解释文本或 Markdown。
-字段只允许：title、summary、legs。
-summary 只允许：total_hours、estimated_total_cost。
-每个 leg 只允许：index、start_time_local、end_time_local、activity_type、place、transport、estimated_cost、tips。
-activity_type 只能是：flight, transit, food, attraction, rest, shopping。
-transport.mode 只能是：walk, bus, metro, taxi, train, flight。
-place 必须包含：name、latitude、longitude、address。
-estimated_cost 必须包含：amount、currency。
-时间必须连续，总花费不得超过预算。
-优先输出紧凑、可执行、省钱的路线，减少冗长描述。
+You are a travel planner. Output ONLY a compact JSON object.
+Fields: title(string), summary(object), legs(array).
+summary: total_hours(int), estimated_total_cost(object with amount,currency).
+Each leg: index, start_time_local, end_time_local, activity_type, place, transport, estimated_cost, tips.
+activity_type: flight|transit|food|attraction|rest|shopping.
+transport: object with mode(walk|bus|metro|taxi|train|flight).
+place: name, latitude, longitude, address.
+estimated_cost: amount, currency.
+tips: array of strings, e.g. ["tip1","tip2"].
+Be extremely concise. No explanations. Pure JSON only.
 """
 
 
@@ -180,21 +182,14 @@ def build_user_prompt(
     locale: str,
     timezone: str,
 ) -> str:
-    tag_text = "、".join(tags) if tags else "无特殊偏好"
-    lang = "中文" if locale.startswith("zh") else "English"
+    tag_text = ",".join(tags) if tags else "none"
+    lang = "Chinese" if locale.startswith("zh") else "English"
     return (
-        f"请为以下需求生成紧凑 itinerary JSON："
-        f"出发地={origin}；"
-        f"目的地={destination}；"
-        f"总时长={total_hours}小时；"
-        f"预算={budget_amount} {budget_currency}；"
-        f"偏好={tag_text}；"
-        f"时区={timezone}；"
-        f"语言={lang}；"
-        f"legs 控制在 4 到 {settings.LLM_PRIMARY_MAX_LEGS} 段；"
-        f"每段 tips 最多 {settings.LLM_PRIMARY_MAX_TIPS_PER_LEG} 条短句；"
-        f"字段严格匹配系统要求；"
-        f"仅输出 JSON。"
+        f"Compact itinerary JSON: origin={origin}; dest={destination}; "
+        f"{total_hours}h; budget={budget_amount}{budget_currency}; "
+        f"prefs={tag_text}; tz={timezone}; lang={lang}; "
+        f"4-{settings.LLM_PRIMARY_MAX_LEGS} legs; "
+        f"{settings.LLM_PRIMARY_MAX_TIPS_PER_LEG} tip per leg; JSON only."
     )
 
 
@@ -269,7 +264,7 @@ class LLMGateway:
 
         last_error: Exception | None = None
         total = len(self.providers)
-        skip_base_url: str | None = None  # if a gateway times out, skip rest on same gateway
+        skip_base_url: str | None = None  # if a gateway is UNREACHABLE, skip rest on same gateway
 
         for idx, provider in enumerate(self.providers):
             if not provider.api_key:
@@ -279,10 +274,10 @@ class LLMGateway:
                 )
                 continue
 
-            # Smart skip: if previous timeout was on same gateway, skip remaining same-gateway models
+            # Smart skip: only on CONNECT failures (gateway unreachable), not read timeouts
             if skip_base_url and provider.base_url == skip_base_url:
                 logger.warning(
-                    "[%d/%d] Skipping %s model=%s – same gateway timed out",
+                    "[%d/%d] Skipping %s model=%s – gateway unreachable",
                     idx + 1, total, provider.name, provider.model,
                 )
                 continue
@@ -299,15 +294,31 @@ class LLMGateway:
                     idx + 1, total, provider.name, provider.model, result.latency_ms,
                 )
                 return result
+            except httpx.ConnectTimeout:
+                last_error = httpx.ConnectTimeout(
+                    f"ConnectTimeout on {provider.name} model={provider.model}"
+                )
+                logger.error(
+                    "[%d/%d] %s model=%s CONNECT TIMEOUT – skipping gateway",
+                    idx + 1, total, provider.name, provider.model,
+                )
+                skip_base_url = provider.base_url  # gateway unreachable
+            except httpx.ConnectError as exc:
+                last_error = exc
+                logger.error(
+                    "[%d/%d] %s model=%s CONNECT ERROR: %s – skipping gateway",
+                    idx + 1, total, provider.name, provider.model, str(exc)[:100],
+                )
+                skip_base_url = provider.base_url  # gateway unreachable
             except httpx.ReadTimeout:
                 last_error = httpx.ReadTimeout(
                     f"ReadTimeout on {provider.name} model={provider.model}"
                 )
-                logger.error(
-                    "[%d/%d] %s model=%s TIMEOUT after %ds – skipping same gateway",
+                logger.warning(
+                    "[%d/%d] %s model=%s READ TIMEOUT after %ds – trying next model",
                     idx + 1, total, provider.name, provider.model, provider.timeout,
                 )
-                skip_base_url = provider.base_url  # mark this gateway as timed-out
+                # Don't skip gateway — other models may respond faster
             except httpx.HTTPStatusError as exc:
                 last_error = exc
                 status = exc.response.status_code
@@ -347,7 +358,6 @@ class LLMGateway:
         payload = {
             "model": provider.model,
             "temperature": settings.LLM_TEMPERATURE,
-            "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
@@ -380,6 +390,17 @@ class LLMGateway:
         resp.raise_for_status()
 
         data = resp.json()
+
+        # Handle non-standard gateway error responses (HTTP 200 but error payload)
+        # e.g. {"status": "449", "msg": "rate limit"} or {"status": "435", "msg": "Model not support"}
+        if "choices" not in data:
+            error_status = data.get("status", "unknown")
+            error_msg = data.get("msg", str(data)[:200])
+            raise RuntimeError(
+                f"Gateway error from {provider.name} model={provider.model}: "
+                f"status={error_status} msg={error_msg}"
+            )
+
         raw_text = data["choices"][0]["message"]["content"]
         if isinstance(raw_text, list):
             raw_text = "".join(

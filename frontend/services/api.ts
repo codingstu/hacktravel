@@ -33,7 +33,7 @@ const getBaseUrl = (): string => {
 };
 
 const BASE_URL = getBaseUrl();
-const TIMEOUT_MS = 45_000; // 对齐新的快速失败降级链，避免前端长时间无响应
+const TIMEOUT_MS = 75_000; // 留足时间给后端降级链（单模型35s × 2次尝试 = 70s < 75s）
 
 class ApiError extends Error {
   code: string;

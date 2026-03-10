@@ -1,6 +1,7 @@
 /**
- * Tab 导航布局 — 杂志风定制 Tab Bar
- * 去掉 emoji headerTitle，用纯文字 + 极简分割建立品牌感
+ * Tab 导航布局 — 对齐 Stitch 设计稿
+ * 底部 3 Tab：Plan / Guides / Radar
+ * 半透明毛玻璃底栏 + primary/10 色圈
  */
 import React from 'react';
 import { Tabs } from 'expo-router';
@@ -12,52 +13,36 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
+        headerShown: false,
         tabBarActiveTintColor: Colors.tab.active,
         tabBarInactiveTintColor: Colors.tab.inactive,
         tabBarStyle: {
           backgroundColor: Colors.tab.bg,
-          borderTopWidth: 1,
+          borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: Colors.tab.border,
-          height: Platform.select({ ios: 78, android: 70 }),
-          paddingBottom: Platform.select({ ios: 12, android: 8 }),
+          height: Platform.select({ ios: 78, android: 64 }),
+          paddingBottom: Platform.select({ ios: 24, android: 6 }),
           paddingTop: 8,
-          borderRadius: BorderRadius.xl,
-          marginHorizontal: Spacing.lg,
-          marginBottom: Spacing.lg,
-          position: 'absolute',
-          ...Shadow.lg,
         },
         tabBarItemStyle: {
-          borderRadius: BorderRadius.lg,
-          marginHorizontal: 4,
+          marginHorizontal: 2,
         },
         tabBarLabelStyle: {
-          fontSize: FontSize.xs,
-          fontWeight: FontWeight.semibold,
-          letterSpacing: 0.3,
-        },
-        headerStyle: {
-          backgroundColor: Colors.surface,
-          shadowColor: 'transparent',
-          elevation: 0,
-        },
-        headerTintColor: Colors.text,
-        headerTitleStyle: {
+          fontSize: 10,
           fontWeight: FontWeight.bold,
-          fontSize: FontSize.xl,
-          letterSpacing: -0.3,
+          letterSpacing: 0.8,
+          textTransform: 'uppercase',
+          marginTop: 2,
         },
-        headerShadowVisible: false,
       }}>
       <Tabs.Screen
         name="index"
         options={{
-          title: '极限爆改',
-          headerTitle: '极限爆改',
+          title: 'Plan',
           tabBarIcon: ({ color, focused }) => (
             <View style={focused ? styles.activeIconWrap : undefined}>
               <Ionicons
-                name={focused ? 'flash' : 'flash-outline'}
+                name={focused ? 'map' : 'map-outline'}
                 size={22}
                 color={color}
               />
@@ -68,12 +53,11 @@ export default function TabLayout() {
       <Tabs.Screen
         name="community"
         options={{
-          title: '抄作业',
-          headerTitle: '抄作业',
+          title: 'Guides',
           tabBarIcon: ({ color, focused }) => (
             <View style={focused ? styles.activeIconWrap : undefined}>
               <Ionicons
-                name={focused ? 'layers' : 'layers-outline'}
+                name={focused ? 'book' : 'book-outline'}
                 size={22}
                 color={color}
               />
@@ -84,8 +68,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="watchlist"
         options={{
-          title: '盯盘',
-          headerTitle: '盯盘',
+          title: 'Radar',
           tabBarIcon: ({ color, focused }) => (
             <View style={focused ? styles.activeIconWrap : undefined}>
               <Ionicons
@@ -103,12 +86,10 @@ export default function TabLayout() {
 
 const styles = StyleSheet.create({
   activeIconWrap: {
-    backgroundColor: Colors.primaryLight,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    backgroundColor: Colors.tagActive.bg,
     borderRadius: BorderRadius.full,
-    width: 38,
-    height: 38,
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },

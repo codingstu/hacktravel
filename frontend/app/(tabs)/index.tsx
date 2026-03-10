@@ -1,11 +1,13 @@
 /**
- * Tab1 极限爆改 — 行程生成主界面（v3 杂志风重构）
+ * Tab1 Plan — 行程生成主界面（v8 Stitch 统一风格）
  *
- * 设计语言：
- * - 大标题 hero 区 + 奶油白输入卡片 + 暗色结果卡
- * - 去掉 emoji 做标题，改用 icon + 纯文字
- * - 时间轴用色块渐变替代圆点线条
- * - 加载态用个性文案替代通用 spinner 文字
+ * 设计语言（对齐 Stitch _1 / _4）：
+ * - 顶部 Budget & Duration 指标栏（sticky 毛玻璃）
+ * - Hero 图片卡 + 渐变遮罩 + 标题
+ * - From ↔ To 输入行 + swap 按钮
+ * - Continent pill 芯片 + Focus Region 标签
+ * - 全底宽 "Plan My Trip" CTA
+ * - 时间轴用色块圆点 + 竖线
  */
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
@@ -23,6 +25,7 @@ import {
   Modal,
   Image,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -54,6 +57,8 @@ import {
   HOT_DESTINATIONS,
 } from '@/services/presets';
 import { formatMoney, formatMoneyWithCode, getTimezoneLabel } from '@/utils/format';
+import { HERO_IMAGE, RESULT_CARD_BG, getDestinationImage } from '@/services/images';
+import { t } from '@/services/i18n';
 import type {
   Continent,
   FeaturedSubRegion,
@@ -66,25 +71,25 @@ import type {
 
 type ViewState = 'idle' | 'loading' | 'success' | 'error';
 
-/** 将 ApiError 转换为用户友好的中文提示 */
+/** 将 ApiError 转换为用户友好提示（自动多语言） */
 function friendlyApiError(err: ApiError): string {
   switch (err.code) {
     case 'HKT_429_RATE_LIMITED':
       return err.retryAfter
-        ? `请求太频繁，请 ${err.retryAfter} 秒后重试`
-        : '请求太频繁，请稍后重试';
+        ? t('plan.rateLimited', { seconds: err.retryAfter })
+        : t('plan.rateLimitedGeneric');
     case 'HKT_503_MODEL_UNAVAILABLE':
-      return 'AI 服务暂时不可用，请稍后重试';
+      return t('plan.modelUnavailable');
     case 'HKT_504_MODEL_TIMEOUT':
-      return 'AI 生成超时，请重试';
+      return t('plan.modelTimeout');
     case 'HKT_599_FALLBACK_CACHE_MISS':
-      return '所有 AI 模型均不可用，请稍后重试';
+      return t('plan.allModelsFailed');
     case 'HKT_400_INVALID_INPUT':
-      return `输入有误：${err.message}`;
+      return t('plan.invalidInput', { msg: err.message });
     case 'HKT_422_SCHEMA_VALIDATION_FAILED':
-      return '参数格式错误，请检查输入';
+      return t('plan.schemaError');
     default:
-      return err.message || '未知错误，请稍后重试';
+      return err.message || t('plan.unknownError');
   }
 }
 
@@ -98,15 +103,46 @@ const ACTIVITY_ICON_MAP: Record<string, { name: string; color: string }> = {
   flight: { name: 'airplane', color: '#5B8DEF' },
 };
 
-/** 随机加载文案 — 仅在 AI 生成时展示 */
-const LOADING_QUIPS = [
-  '未找到内置路线，AI 正在专属定制中…',
-  '正在翻遍全网找最便宜的机票…',
-  '疯狂计算怎么用最少的钱吃到最多美食…',
-  '帮你跟本地人打听哪条巷子值得钻…',
-  '把每一分钟都安排得明明白白…',
-  '在地图上画出一条完美路线…',
+/** 随机加载文案 key — 仅在 AI 生成时展示 */
+const LOADING_QUIP_KEYS = [
+  'plan.noPresetAI',
+  'plan.searchBest',
+  'plan.smartBudget',
+  'plan.comfortPlan',
+  'plan.everyMinute',
+  'plan.perfectRoute',
 ];
+
+/** 全局城市库用于自动补全 — 涵盖所有预置目的地 + 常见出发城市 */
+const ALL_CITIES: string[] = [
+  // 中国出发城市
+  '上海', '北京', '广州', '深圳', '成都', '杭州', '南京', '武汉', '重庆', '西安',
+  '长沙', '天津', '青岛', '大连', '厦门', '昆明', '郑州', '沈阳', '哈尔滨', '珠海',
+  '三亚', '海口', '合肥', '福州', '济南', '宁波', '苏州', '无锡', '贵阳', '南宁',
+  // 东亚
+  '冲绳', '东京', '大阪', '首尔', '台北', '福冈', '京都', '北海道', '札幌', '香港',
+  '澳门', '釜山',
+  // 东南亚
+  '曼谷', '清迈', '新加坡', '普吉岛', '巴厘岛', '槟城', '胡志明市', '河内', '岘港',
+  '吉隆坡', '马尼拉', '宿务', '雅加达',
+  // 欧洲
+  '巴黎', '伦敦', '罗马', '巴塞罗那', '阿姆斯特丹', '爱丁堡', '曼彻斯特', '利物浦',
+  '柏林', '里斯本', '布拉格', '维也纳',
+  // 美洲
+  '纽约', '洛杉矶', '里约热内卢', '圣保罗', '布宜诺斯艾利斯', '利马', '圣地亚哥',
+  '温哥华', '墨西哥城', '波哥大', '卡塔赫纳',
+  // 非洲 & 中东
+  '开罗', '马拉喀什', '开普敦', '内罗毕', '桑给巴尔', '迪拜', '伊斯坦布尔',
+  // 大洋洲
+  '悉尼', '墨尔本', '奥克兰', '皇后镇',
+];
+
+/** 根据输入文字过滤城市建议 */
+function filterCities(text: string, limit = 6): string[] {
+  if (!text.trim()) return [];
+  const q = text.trim().toLowerCase();
+  return ALL_CITIES.filter(c => c.toLowerCase().includes(q) || c.startsWith(text)).slice(0, limit);
+}
 
 export default function GenerateScreen() {
   // ── Form ──
@@ -120,6 +156,12 @@ export default function GenerateScreen() {
   const [regionMeta, setRegionMeta] = useState<RegionMeta[]>(REGION_METADATA_FALLBACK);
   const [featuredSubRegions, setFeaturedSubRegions] = useState<FeaturedSubRegion[]>(FEATURED_SUB_REGIONS_FALLBACK);
   const [regionLoading, setRegionLoading] = useState(true);
+
+  // ── Autocomplete ──
+  const [originFocused, setOriginFocused] = useState(false);
+  const [destFocused, setDestFocused] = useState(false);
+  const originSuggestions = useMemo(() => (originFocused ? filterCities(origin) : []), [origin, originFocused]);
+  const destSuggestions = useMemo(() => (destFocused ? filterCities(destination) : []), [destination, destFocused]);
 
   const activeRegion = useMemo(
     () => regionMeta.find(region => region.key === selectedContinent) ?? null,
@@ -242,25 +284,25 @@ export default function GenerateScreen() {
 
   const toggleTag = useCallback((tag: string) => {
     setSelectedTags(prev =>
-      prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag],
+      prev.includes(tag) ? prev.filter(item => item !== tag) : [...prev, tag],
     );
   }, []);
 
   const handleGenerate = useCallback(async () => {
     if (!destination.trim()) {
-      setErrorMsg('请输入目的地');
+      setErrorMsg(t('plan.invalidInput', { msg: t('plan.toPlaceholder') }));
       setViewState('error');
       return;
     }
     setViewState('loading');
     setErrorMsg('');
     setLoadingQuip(
-      LOADING_QUIPS[Math.floor(Math.random() * LOADING_QUIPS.length)],
+      t(LOADING_QUIP_KEYS[Math.floor(Math.random() * LOADING_QUIP_KEYS.length)]),
     );
 
     try {
       const resp = await generateItinerary({
-        origin: origin.trim() || '出发地',
+        origin: origin.trim() || t('plan.fromPlaceholder'),
         destination: destination.trim(),
         total_hours: parseInt(hours, 10) || 48,
         budget: {
@@ -283,9 +325,9 @@ export default function GenerateScreen() {
       if (err instanceof ApiError) {
         setErrorMsg(friendlyApiError(err));
       } else if (err instanceof Error) {
-        setErrorMsg(err.name === 'AbortError' ? '请求超时，请重试' : err.message);
+        setErrorMsg(err.name === 'AbortError' ? t('plan.modelTimeout') : err.message);
       } else {
-        setErrorMsg('未知错误，请稍后重试');
+        setErrorMsg(t('plan.unknownError'));
       }
       setViewState('error');
     }
@@ -315,10 +357,10 @@ export default function GenerateScreen() {
   }, []);
 
   const deleteLeg = useCallback((i: number) => {
-    Alert.alert('删除节点', `确认删除「${editableLegs[i]?.place.name}」?`, [
-      { text: '取消', style: 'cancel' },
+    Alert.alert(t('common.delete'), `${editableLegs[i]?.place.name}?`, [
+      { text: t('plan.cancel'), style: 'cancel' },
       {
-        text: '删除', style: 'destructive',
+        text: t('common.delete'), style: 'destructive',
         onPress: () =>
           setEditableLegs(prev =>
             prev.filter((_, idx) => idx !== i).map((l, idx) => ({ ...l, index: idx }))
@@ -350,10 +392,10 @@ export default function GenerateScreen() {
     setViewState('loading');
     setIsEditing(false);
     setErrorMsg('');
-    setLoadingQuip('AI 正在专属定制，逐分每颗钱都安排上…');
+    setLoadingQuip(t('plan.noPresetAI'));
     try {
       const resp = await generateItinerary({
-        origin: origin.trim() || '出发地',
+        origin: origin.trim() || t('plan.fromPlaceholder'),
         destination: destination.trim(),
         total_hours: parseInt(hours, 10) || 48,
         budget: { amount: parseInt(budget, 10) || 3000, currency: 'CNY' },
@@ -370,8 +412,8 @@ export default function GenerateScreen() {
     } catch (err) {
       if (err instanceof ApiError) setErrorMsg(`${err.code}: ${err.message}`);
       else if (err instanceof Error)
-        setErrorMsg(err.name === 'AbortError' ? '请求超时，请重试' : err.message);
-      else setErrorMsg('未知错误，请稍后重试');
+        setErrorMsg(err.name === 'AbortError' ? t('plan.modelTimeout') : err.message);
+      else setErrorMsg(t('plan.unknownError'));
       setViewState('error');
     }
   }, [origin, destination, hours, budget, selectedContinent, selectedSubRegion, selectedTags]);
@@ -385,6 +427,8 @@ export default function GenerateScreen() {
     setSelectedSubRegion(route.sub_region ?? '');
   }, []);
 
+  const insets = useSafeAreaInsets();
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -395,67 +439,117 @@ export default function GenerateScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}>
 
-        {/* ── Hero 头部 ── */}
-        <LinearGradient
-          colors={[Colors.gradient.heroStart, Colors.gradient.heroEnd]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.hero}>
-          <View style={styles.heroTopRow}>
-            <View style={styles.heroBrand}>
-              <Ionicons name="paper-plane" size={14} color={Colors.accent} />
-              <Text style={styles.heroBrandText}>HackTravel Dispatch</Text>
+        {/* ── 顶部指标栏 — Stitch Budget & Duration bar ── */}
+        <View style={[styles.topBar, { paddingTop: insets.top + Spacing.sm }]}>
+          <View style={styles.topBarItem}>
+            <View style={styles.topBarIcon}>
+              <Ionicons name="wallet-outline" size={18} color={Colors.primary} />
             </View>
-            <View style={styles.heroMenu}>
-              <Ionicons name="menu" size={18} color={Colors.text} />
+            <View>
+              <Text style={styles.topBarLabel}>{t('plan.budget')}</Text>
+              <Text style={styles.topBarValue}>
+                ¥{(parseInt(budget, 10) || 3000).toLocaleString()}
+              </Text>
             </View>
           </View>
-          <Text style={styles.heroTitle}>Plan Smart{'\n'}Travel Better</Text>
-          <Text style={styles.heroSub}>
-            输入目的地，快速生成舒适、可执行、可编辑的完整行程
-          </Text>
-          <View style={styles.heroStatsRow}>
-            <HeroMetric label="时长" value={`${hours || '48'}h`} icon="time-outline" />
-            <HeroMetric
-              label="预算"
-              value={`¥${(parseInt(budget, 10) || 3000).toLocaleString()}`}
-              icon="wallet-outline"
-            />
-            <HeroMetric label="区域" value={selectedContinent.toUpperCase()} icon="earth-outline" />
+          <View style={styles.topBarItem}>
+            <View style={styles.topBarIcon}>
+              <Ionicons name="calendar-outline" size={18} color={Colors.primary} />
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={styles.topBarLabel}>{t('plan.duration')}</Text>
+              <Text style={styles.topBarValue}>{hours || '48'} {t('plan.hours')}</Text>
+            </View>
           </View>
-        </LinearGradient>
+        </View>
 
-        {/* ── 输入区 ── */}
+        {/* ── Hero — Stitch 紧凑品牌条 ── */}
+        <View style={styles.heroImageWrap}>
+          <View style={styles.heroImage}>
+            <Image
+              source={{ uri: HERO_IMAGE }}
+              style={StyleSheet.absoluteFillObject}
+              resizeMode="cover"
+            />
+            <LinearGradient
+              colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0.55)']}
+              style={StyleSheet.absoluteFillObject}
+            />
+            <View style={styles.heroOverlay}>
+              <Text style={styles.heroTitle}>{t('plan.heroTitle')}</Text>
+              <Text style={styles.heroSub}>{t('plan.heroSub')}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ── 输入区 — Stitch From ↔ To ── */}
         <View style={styles.formCard}>
-          {/* 出发地 → 目的地 */}
+          {/* From ↔ To 行 */}
           <View style={styles.routeRow}>
             <View style={styles.routeInput}>
-              <Text style={styles.fieldLabel}>FROM</Text>
+              <Text style={styles.fieldLabel}>{t('plan.from')}</Text>
               <TextInput
                 style={styles.input}
                 value={origin}
                 onChangeText={setOrigin}
-                placeholder="上海"
+                onFocus={() => setOriginFocused(true)}
+                onBlur={() => setTimeout(() => setOriginFocused(false), 200)}
+                placeholder={t('plan.fromPlaceholder')}
                 placeholderTextColor={Colors.textLight}
               />
+              {originSuggestions.length > 0 && (
+                <View style={styles.suggestBox}>
+                  {originSuggestions.map(city => (
+                    <TouchableOpacity
+                      key={city}
+                      style={styles.suggestItem}
+                      onPress={() => { setOrigin(city); setOriginFocused(false); }}>
+                      <Ionicons name="location-outline" size={14} color={Colors.textSecondary} />
+                      <Text style={styles.suggestText}>{city}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
             </View>
-            <View style={styles.routeArrow}>
-              <Ionicons name="arrow-forward" size={18} color={Colors.primary} />
-            </View>
+            <TouchableOpacity
+              style={styles.swapBtn}
+              onPress={() => {
+                const tmp = origin;
+                setOrigin(destination);
+                setDestination(tmp);
+              }}
+              activeOpacity={0.7}>
+              <Ionicons name="swap-horizontal" size={16} color="#fff" />
+            </TouchableOpacity>
             <View style={styles.routeInput}>
-              <Text style={styles.fieldLabel}>TO</Text>
+              <Text style={[styles.fieldLabel, { textAlign: 'right' }]}>{t('plan.to')}</Text>
               <TextInput
-                style={[styles.input, styles.inputHighlight]}
+                style={[styles.input, { textAlign: 'right' }]}
                 value={destination}
                 onChangeText={setDestination}
-                placeholder="冲绳"
+                onFocus={() => setDestFocused(true)}
+                onBlur={() => setTimeout(() => setDestFocused(false), 200)}
+                placeholder={t('plan.toPlaceholder')}
                 placeholderTextColor={Colors.textLight}
               />
+              {destSuggestions.length > 0 && (
+                <View style={[styles.suggestBox, { right: 0 }]}>
+                  {destSuggestions.map(city => (
+                    <TouchableOpacity
+                      key={city}
+                      style={styles.suggestItem}
+                      onPress={() => { setDestination(city); setDestFocused(false); }}>
+                      <Ionicons name="location-outline" size={14} color={Colors.textSecondary} />
+                      <Text style={styles.suggestText}>{city}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
             </View>
           </View>
 
           {/* 大洲开关 */}
-          <Text style={styles.fieldLabel}>CONTINENT</Text>
+          <Text style={styles.fieldLabel}>{t('plan.continent')}</Text>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -482,7 +576,7 @@ export default function GenerateScreen() {
 
           {activeSubRegions.length > 0 && (
             <>
-              <Text style={styles.fieldLabel}>FOCUS REGION</Text>
+              <Text style={styles.fieldLabel}>{t('plan.focusRegion')}</Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -492,7 +586,7 @@ export default function GenerateScreen() {
                   style={[styles.hotChip, !selectedSubRegion && styles.hotChipActive]}
                   onPress={() => setSelectedSubRegion('')}>
                   <Text style={[styles.hotChipText, !selectedSubRegion && styles.hotChipTextActive]}>
-                    全部
+                    All
                   </Text>
                 </TouchableOpacity>
                 {activeSubRegions.map(region => (
@@ -542,13 +636,13 @@ export default function GenerateScreen() {
           </ScrollView>
 
           {regionLoading && (
-            <Text style={styles.loadingQuip}>正在识别你所在的大洲并加载全球热门路线…</Text>
+            <Text style={styles.loadingQuip}>{t('common.loading')}</Text>
           )}
 
           {/* DURATION & BUDGET */}
           <View style={styles.paramRow}>
             <View style={styles.paramItem}>
-              <Text style={styles.fieldLabel}>DURATION</Text>
+              <Text style={styles.fieldLabel}>{t('plan.durationLabel')}</Text>
               <View style={styles.paramInputWrap}>
                 <TextInput
                   style={styles.paramInput}
@@ -563,7 +657,7 @@ export default function GenerateScreen() {
             </View>
             <View style={styles.paramDivider} />
             <View style={styles.paramItem}>
-              <Text style={styles.fieldLabel}>BUDGET</Text>
+              <Text style={styles.fieldLabel}>{t('plan.budgetLabel')}</Text>
               <View style={styles.paramInputWrap}>
                 <Text style={styles.paramPrefix}>¥</Text>
                 <TextInput
@@ -579,7 +673,7 @@ export default function GenerateScreen() {
           </View>
 
           {/* PREFERENCES标签 */}
-          <Text style={styles.fieldLabel}>PREFERENCES</Text>
+          <Text style={styles.fieldLabel}>{t('plan.preferences')}</Text>
           <View style={styles.tagWrap}>
             {TRAVEL_TAGS.map(tag => (
               <TouchableOpacity
@@ -600,7 +694,7 @@ export default function GenerateScreen() {
             ))}
           </View>
 
-          {/* CTA */}
+          {/* CTA — Stitch "Plan My Trip" 全宽按钮 */}
           <TouchableOpacity
             style={[styles.ctaBtn, viewState === 'loading' && styles.ctaBtnLoading]}
             onPress={handleGenerate}
@@ -611,7 +705,7 @@ export default function GenerateScreen() {
             ) : (
               <>
                 <Ionicons name="flash" size={18} color={Colors.accent} />
-                <Text style={styles.ctaBtnText}>Plan My Trip</Text>
+                <Text style={styles.ctaBtnText}>{t('plan.planMyTrip')}</Text>
               </>
             )}
           </TouchableOpacity>
@@ -627,7 +721,7 @@ export default function GenerateScreen() {
             <Ionicons name="alert-circle" size={28} color={Colors.error} />
             <Text style={styles.errorText}>{errorMsg}</Text>
             <TouchableOpacity style={styles.retryBtn} onPress={handleGenerate}>
-              <Text style={styles.retryBtnText}>重新规划</Text>
+              <Text style={styles.retryBtnText}>{t('plan.retry')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -635,40 +729,49 @@ export default function GenerateScreen() {
         {/* ── 结果区 ── */}
         {viewState === 'success' && result && (
           <View style={styles.resultArea}>
-            {/* 汇总卡 */}
+            {/* 汇总卡 — 图片背景 */}
             <View style={styles.summaryCard}>
+              <Image
+                source={{ uri: destination ? getDestinationImage(destination, 800, 300) : RESULT_CARD_BG }}
+                style={StyleSheet.absoluteFillObject}
+                resizeMode="cover"
+              />
+              <LinearGradient
+                colors={['rgba(0,0,0,0.35)', 'rgba(0,0,0,0.6)']}
+                style={StyleSheet.absoluteFillObject}
+              />
               <Text style={styles.summaryTitle}>{result.title}</Text>
               <View style={styles.summaryRow}>
                 <SummaryPill
-                  label="总DURATION"
+                  label={t('plan.totalDuration')}
                   value={`${result.summary.total_hours}h`}
                 />
                 <SummaryPill
-                  label="预计花费"
+                  label={t('plan.estimatedCost')}
                   value={formatMoney(result.summary.estimated_total_cost)}
                   sub={result.summary.estimated_total_cost.currency}
                 />
                 <SummaryPill
-                  label="节点"
+                  label={t('plan.stops')}
                   value={`${editableLegs.length}`}
                 />
               </View>
               {result.source.is_preset && (
                 <View style={styles.presetBadge}>
                   <Ionicons name="flash" size={12} color={Colors.primary} />
-                  <Text style={styles.presetBadgeText}>闪电推荐</Text>
+                  <Text style={styles.presetBadgeText}>{t('plan.flashRecommend')}</Text>
                 </View>
               )}
               {result.source.cache_hit && !result.source.is_preset && (
                 <View style={styles.cacheBadge}>
                   <Ionicons name="flash" size={12} color={Colors.success} />
-                  <Text style={styles.cacheBadgeText}>极速缓存</Text>
+                  <Text style={styles.cacheBadgeText}>{t('plan.cacheHit')}</Text>
                 </View>
               )}
               {!result.source.cache_hit && !result.source.is_preset && (
                 <View style={styles.aiBadge}>
                   <Ionicons name="sparkles" size={12} color={Colors.primary} />
-                  <Text style={styles.aiBadgeText}>AI 定制</Text>
+                  <Text style={styles.aiBadgeText}>AI {t('plan.aiCustom')}</Text>
                 </View>
               )}
             </View>
@@ -682,8 +785,7 @@ export default function GenerateScreen() {
                   <View style={styles.budgetWarnBanner}>
                     <Ionicons name="warning" size={16} color="#92400E" />
                     <Text style={styles.budgetWarnText}>
-                      预置路线预估 ¥{estimated} CNY，超出你的预算 ¥{userBudget} CNY，
-                      可手动删除节点或用 AI 重新规划
+                      {t('plan.budgetWarn', { estimated: String(estimated), budget: String(userBudget) })}
                     </Text>
                   </View>
                 );
@@ -702,14 +804,14 @@ export default function GenerateScreen() {
                   color={isEditing ? '#fff' : Colors.primary}
                 />
                 <Text style={[styles.actionBtnText, isEditing && styles.actionBtnTextActive]}>
-                  {isEditing ? '完成编辑' : '编辑路线'}
+                  {isEditing ? t('common.save') : t('plan.editRoute')}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionBtnSecondary}
                 onPress={handleForceAI}>
                 <Ionicons name="sparkles" size={16} color={Colors.accent} />
-                <Text style={styles.actionBtnSecondaryText}>AI 重新规划</Text>
+                <Text style={styles.actionBtnSecondaryText}>{t('plan.aiReplan')}</Text>
               </TouchableOpacity>
             </View>
 
@@ -723,7 +825,7 @@ export default function GenerateScreen() {
                     <View style={styles.timezoneBanner}>
                       <Ionicons name="time-outline" size={14} color={Colors.primary} />
                       <Text style={styles.timezoneText}>
-                        以下时间均为目的地{tzLabel}
+                        {t('plan.localTimeNote', { tz: tzLabel })}
                       </Text>
                     </View>
                   );
@@ -755,21 +857,21 @@ export default function GenerateScreen() {
                     style={styles.addLegBtn}
                     onPress={() => setShowAddLeg(true)}>
                     <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
-                    <Text style={styles.addLegBtnText}>添加途经点</Text>
+                    <Text style={styles.addLegBtnText}>{t('plan.addStop')}</Text>
                   </TouchableOpacity>
                 ) : (
                   <View style={styles.addLegForm}>
-                    <Text style={styles.addLegFormTitle}>新增途经点</Text>
+                    <Text style={styles.addLegFormTitle}>{t('plan.addStopTitle')}</Text>
                     <TextInput
                       style={styles.addLegInput}
                       value={newLegName}
                       onChangeText={setNewLegName}
-                      placeholder="地点名称（如：筑地市场）"
+                      placeholder={t('plan.placeNamePlaceholder')}
                       placeholderTextColor={Colors.textLight}
                     />
                     <View style={styles.addLegRow}>
                       <View style={styles.addLegCostWrap}>
-                        <Text style={styles.addLegLabel}>预计花费 ¥</Text>
+                        <Text style={styles.addLegLabel}>{t('plan.estimatedCostLabel')}</Text>
                         <TextInput
                           style={styles.addLegCostInput}
                           value={newLegCost}
@@ -786,26 +888,26 @@ export default function GenerateScreen() {
                       showsHorizontalScrollIndicator={false}
                       style={{ marginBottom: Spacing.md }}>
                       {[
-                        { key: 'attraction', label: '景点' },
-                        { key: 'food', label: '美食' },
-                        { key: 'transit', label: '交通' },
-                        { key: 'shopping', label: '购物' },
-                        { key: 'rest', label: '住宿' },
-                        { key: 'flight', label: '航班' },
-                      ].map(t => (
+                        { key: 'attraction', label: t('plan.attraction') },
+                        { key: 'food', label: t('plan.food') },
+                        { key: 'transit', label: t('plan.transit') },
+                        { key: 'shopping', label: t('plan.shopping') },
+                        { key: 'rest', label: t('plan.rest') },
+                        { key: 'flight', label: t('plan.flight') },
+                      ].map(t_item => (
                         <TouchableOpacity
-                          key={t.key}
+                          key={t_item.key}
                           style={[
                             styles.typeChip,
-                            newLegType === t.key && styles.typeChipActive,
+                            newLegType === t_item.key && styles.typeChipActive,
                           ]}
-                          onPress={() => setNewLegType(t.key)}>
+                          onPress={() => setNewLegType(t_item.key)}>
                           <Text
                             style={[
                               styles.typeChipText,
-                              newLegType === t.key && styles.typeChipTextActive,
+                              newLegType === t_item.key && styles.typeChipTextActive,
                             ]}>
-                            {t.label}
+                            {t_item.label}
                           </Text>
                         </TouchableOpacity>
                       ))}
@@ -814,12 +916,12 @@ export default function GenerateScreen() {
                       <TouchableOpacity
                         style={styles.addLegConfirm}
                         onPress={addLeg}>
-                        <Text style={styles.addLegConfirmText}>确认添加</Text>
+                        <Text style={styles.addLegConfirmText}>{t('plan.confirm')}</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={styles.addLegCancel}
                         onPress={() => setShowAddLeg(false)}>
-                        <Text style={styles.addLegCancelText}>取消</Text>
+                        <Text style={styles.addLegCancelText}>{t('plan.cancel')}</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -834,7 +936,7 @@ export default function GenerateScreen() {
               activeOpacity={0.85}>
               <Ionicons name="navigate" size={20} color={Colors.accent} />
               <Text style={styles.mapsBtnText}>
-                导入 Google Maps · {result.map.waypoints_count} 个途经点
+                {t('plan.openMaps', { count: String(result.map.waypoints_count) })}
               </Text>
             </TouchableOpacity>
           </View>
@@ -843,9 +945,9 @@ export default function GenerateScreen() {
         {/* ── 空态：推荐路线 ── */}
         {viewState === 'idle' && (
           <View style={styles.presetArea}>
-            <Text style={styles.sectionLabel}>热门路线</Text>
+            <Text style={styles.sectionLabel}>{t('plan.hotRoutes')}</Text>
             <Text style={styles.sectionDesc}>
-              {activeRegion ? `${activeRegion.label} 热门路线优先展示` : '对应目的地可秒出路线，点击自动填入参数'}
+              {activeRegion ? t('plan.hotRoutesRegion', { region: activeRegion.label }) : t('plan.hotRoutesDesc')}
             </Text>
             {filteredPresetRoutes.map(route => (
               <TouchableOpacity
@@ -865,7 +967,7 @@ export default function GenerateScreen() {
                   <Text style={styles.presetChip}>{route.total_hours}H</Text>
                   <Text style={styles.presetChip}>{formatMoneyWithCode(route.budget)}</Text>
                   <Text style={styles.presetChip}>
-                    {route.copy_count} 人抄过
+                    {t('plan.presetUsers', { count: route.copy_count })}
                   </Text>
                   {route.sub_region ? (
                     <Text style={styles.presetChip}>{route.sub_region}</Text>
@@ -895,7 +997,7 @@ export default function GenerateScreen() {
             {placeDetailLoading ? (
               <View style={styles.modalLoading}>
                 <ActivityIndicator size="large" color={Colors.primary} />
-                <Text style={styles.modalLoadingText}>正在加载地点详情…</Text>
+                <Text style={styles.modalLoadingText}>{t('plan.placeDetailLoading')}</Text>
               </View>
             ) : selectedLeg && (
               <ScrollView showsVerticalScrollIndicator={false}>
@@ -943,7 +1045,7 @@ export default function GenerateScreen() {
                 {/* Wikipedia 简介 */}
                 {placeDetail?.description ? (
                   <View style={styles.modalSection}>
-                    <Text style={styles.modalSectionTitle}>简介</Text>
+                    <Text style={styles.modalSectionTitle}>Description</Text>
                     <Text style={styles.modalDesc}>{placeDetail.description}</Text>
                   </View>
                 ) : null}
@@ -951,7 +1053,7 @@ export default function GenerateScreen() {
                 {/* Insider Tips / 热门评价 */}
                 {selectedLeg.tips && selectedLeg.tips.length > 0 && (
                   <View style={styles.modalSection}>
-                    <Text style={styles.modalSectionTitle}>旅行者贴士</Text>
+                    <Text style={styles.modalSectionTitle}>Travel Tips</Text>
                     {selectedLeg.tips.map((tip, i) => (
                       <View key={i} style={styles.modalTipRow}>
                         <Ionicons name="chatbubble-ellipses-outline" size={14} color={Colors.primary} />
@@ -978,7 +1080,7 @@ export default function GenerateScreen() {
                       style={styles.modalActionBtn}
                       onPress={() => Linking.openURL(placeDetail.map_url!)}>
                       <Ionicons name="navigate" size={16} color="#fff" />
-                      <Text style={styles.modalActionText}>在 Google Maps 中查看</Text>
+                      <Text style={styles.modalActionText}>Google Maps</Text>
                     </TouchableOpacity>
                   )}
                   {placeDetail?.wiki_url && (
@@ -1010,24 +1112,6 @@ function SummaryPill({ label, value, sub }: { label: string; value: string; sub?
         {sub ? <Text style={styles.summaryPillSub}>{sub}</Text> : null}
       </View>
       <Text style={styles.summaryPillLabel}>{label}</Text>
-    </View>
-  );
-}
-
-function HeroMetric({
-  icon,
-  label,
-  value,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  value: string;
-}) {
-  return (
-    <View style={styles.heroMetric}>
-      <Ionicons name={icon} size={12} color={Colors.accent} />
-      <Text style={styles.heroMetricLabel}>{label}</Text>
-      <Text style={styles.heroMetricValue}>{value}</Text>
     </View>
   );
 }
@@ -1138,167 +1222,183 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   scroll: {
-    paddingBottom: 100,
+    paddingBottom: 120,
   },
 
-  // ── Hero
-  hero: {
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.xxl,
-    borderBottomLeftRadius: BorderRadius.xl,
-    borderBottomRightRadius: BorderRadius.xl,
-  },
-  heroTopRow: {
+  // ── Top Bar (Budget & Duration) — Stitch _1
+  topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
+    backgroundColor: Colors.background,
   },
-  heroBrand: {
+  topBarItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 6,
-    borderRadius: BorderRadius.full,
-    gap: 6,
-    backgroundColor: '#FFFFFF20',
+    gap: Spacing.md,
   },
-  heroBrandText: {
-    color: Colors.accent,
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-    letterSpacing: 0.2,
-  },
-  heroMenu: {
-    width: 34,
-    height: 34,
-    borderRadius: BorderRadius.full,
+  topBarIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.tagActive.bg,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.surface,
   },
-  heroTitle: {
-    fontSize: 38,
-    fontWeight: FontWeight.heavy,
-    color: Colors.accent,
-    lineHeight: 44,
-    letterSpacing: -1.2,
-  },
-  heroSub: {
-    fontSize: FontSize.md,
-    color: Colors.textOnDark,
-    marginTop: Spacing.sm,
-    lineHeight: 22,
-  },
-  heroStatsRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    marginTop: Spacing.lg,
-  },
-  heroMetric: {
-    flex: 1,
-    backgroundColor: '#FFFFFF20',
-    borderRadius: BorderRadius.md,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.sm,
-    alignItems: 'center',
-    gap: 2,
-  },
-  heroMetricLabel: {
-    color: Colors.textOnDark,
-    fontSize: FontSize.xs,
-  },
-  heroMetricValue: {
-    color: Colors.accent,
-    fontSize: FontSize.sm,
+  topBarLabel: {
+    fontSize: 10,
     fontWeight: FontWeight.bold,
+    color: Colors.primary,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  topBarValue: {
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+    color: Colors.text,
   },
 
-  // ── Form Card
+  // ── Hero Image — Stitch compact brand bar
+  heroImageWrap: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.xs,
+  },
+  heroImage: {
+    height: 100,
+    borderRadius: BorderRadius.xl,
+    overflow: 'hidden',
+    justifyContent: 'flex-end',
+  },
+  heroOverlay: {
+    padding: Spacing.md,
+  },
+  heroTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+    color: '#fff',
+  },
+  heroSub: {
+    fontSize: FontSize.xs,
+    color: '#ffffffCC',
+    marginTop: 2,
+  },
+
+  // ── Form Card — Stitch _1 / _4
   formCard: {
     backgroundColor: Colors.surface,
     marginHorizontal: Spacing.lg,
-    marginTop: -Spacing.lg,
-    padding: Spacing.xl,
-    borderRadius: BorderRadius.lg,
-    ...Shadow.md,
+    marginTop: Spacing.lg,
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: Colors.tagActive.border,
+    ...Shadow.sm,
   },
   routeRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.lg,
+    zIndex: 10,
   },
   routeInput: {
     flex: 1,
+    position: 'relative',
+    zIndex: 10,
   },
-  routeArrow: {
+  swapBtn: {
     width: 36,
+    height: 36,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.primary,
     alignItems: 'center',
-    paddingBottom: 10,
+    justifyContent: 'center',
+    marginHorizontal: Spacing.sm,
+    marginBottom: 2,
   },
   fieldLabel: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-    color: Colors.textSecondary,
+    fontSize: 10,
+    fontWeight: FontWeight.bold,
+    color: Colors.textLight,
     letterSpacing: 1,
     textTransform: 'uppercase',
     marginBottom: Spacing.xs,
   },
   input: {
-    backgroundColor: Colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.sm,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    fontSize: FontSize.lg,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    paddingHorizontal: 0,
+    paddingVertical: Spacing.sm,
+    fontSize: FontSize.md,
     color: Colors.text,
     fontWeight: FontWeight.medium,
   },
-  inputHighlight: {
-    borderWidth: 1.5,
-    borderColor: Colors.primary,
+
+  // ── Autocomplete suggestions
+  suggestBox: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    minWidth: 160,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.tagActive.border,
+    ...Shadow.md,
+    zIndex: 999,
+    paddingVertical: 4,
+  },
+  suggestItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
+  suggestText: {
+    fontSize: FontSize.sm,
+    color: Colors.text,
+    fontWeight: FontWeight.medium,
   },
 
-  // ── Hot destinations
+  // ── Hot destinations / Continent chips — Stitch pill style
   hotScroll: {
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
   },
   hotContent: {
     paddingVertical: Spacing.xs,
   },
   hotChip: {
-    paddingHorizontal: Spacing.md,
+    paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.full,
-    backgroundColor: Colors.tag.bg,
-    borderWidth: 1,
-    borderColor: Colors.tag.border,
+    backgroundColor: Colors.tagActive.bg,
     marginRight: Spacing.sm,
   },
   hotChipActive: {
-    backgroundColor: Colors.tagActive.bg,
-    borderColor: Colors.tagActive.border,
+    backgroundColor: Colors.primary,
   },
   hotChipText: {
     fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    fontWeight: FontWeight.medium,
+    color: Colors.primary,
+    fontWeight: FontWeight.semibold,
   },
   hotChipTextActive: {
-    color: Colors.primary,
+    color: '#fff',
     fontWeight: FontWeight.bold,
   },
 
-  // ── Params
+  // ── Params — Duration & Budget
   paramRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.background,
-    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.surfaceElevated,
+    borderRadius: BorderRadius.xl,
     padding: Spacing.md,
     marginBottom: Spacing.lg,
+    borderWidth: 1,
+    borderColor: Colors.tagActive.border,
   },
   paramItem: {
     flex: 1,
@@ -1306,7 +1406,7 @@ const styles = StyleSheet.create({
   paramDivider: {
     width: 1,
     height: 36,
-    backgroundColor: Colors.border,
+    backgroundColor: Colors.tagActive.border,
     marginHorizontal: Spacing.md,
   },
   paramInputWrap: {
@@ -1332,7 +1432,7 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
 
-  // ── Tags
+  // ── Tags — Stitch rounded-xl chips
   tagWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1341,32 +1441,32 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   tagChip: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.tag.bg,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: BorderRadius.xl,
+    backgroundColor: Colors.tagActive.bg,
     borderWidth: 1,
-    borderColor: Colors.tag.border,
+    borderColor: Colors.tagActive.border,
   },
   tagChipActive: {
-    backgroundColor: Colors.tagActive.bg,
-    borderColor: Colors.tagActive.border,
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
   },
   tagText: {
     fontSize: FontSize.sm,
-    color: Colors.textSecondary,
+    color: Colors.primary,
     fontWeight: FontWeight.medium,
   },
   tagTextActive: {
-    color: Colors.primary,
+    color: '#fff',
     fontWeight: FontWeight.bold,
   },
 
-  // ── CTA
+  // ── CTA — Stitch full-width xl button
   ctaBtn: {
     backgroundColor: Colors.primary,
-    borderRadius: BorderRadius.lg,
-    paddingVertical: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    height: 56,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
@@ -1380,7 +1480,7 @@ const styles = StyleSheet.create({
     color: Colors.accent,
     fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
   loadingQuip: {
     textAlign: 'center',
@@ -1390,31 +1490,35 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
 
-  // ── Error
+  // ── Error — Stitch error banner
   errorCard: {
     margin: Spacing.lg,
-    padding: Spacing.xl,
-    backgroundColor: '#FEF2F2',
-    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    backgroundColor: '#fef2f2',
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.sm,
+    gap: Spacing.md,
   },
   errorText: {
-    color: Colors.error,
-    fontSize: FontSize.md,
-    textAlign: 'center',
-    lineHeight: 22,
+    flex: 1,
+    color: '#dc2626',
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.medium,
+    lineHeight: 20,
   },
   retryBtn: {
-    backgroundColor: Colors.error,
-    paddingHorizontal: Spacing.xxl,
+    backgroundColor: '#dc2626',
+    paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.sm,
-    marginTop: Spacing.sm,
+    borderRadius: BorderRadius.full,
   },
   retryBtnText: {
     color: Colors.accent,
     fontWeight: FontWeight.bold,
+    fontSize: FontSize.sm,
   },
 
   // ── Result
@@ -1423,10 +1527,11 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.md,
   },
   summaryCard: {
-    backgroundColor: Colors.secondary,
+    backgroundColor: Colors.primary,
     borderRadius: BorderRadius.xl,
     padding: Spacing.xl,
     marginBottom: Spacing.lg,
+    overflow: 'hidden',
     ...Shadow.lg,
   },
   summaryTitle: {
@@ -1463,11 +1568,12 @@ const styles = StyleSheet.create({
     opacity: 0.75,
   },
   summaryPillLabel: {
-    color: Colors.textOnDark,
-    fontSize: FontSize.xs,
+    color: '#ffffffAA',
+    fontSize: 10,
     marginTop: 4,
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
     textTransform: 'uppercase',
+    fontWeight: FontWeight.bold,
   },
   cacheBadge: {
     position: 'absolute',
@@ -1475,14 +1581,14 @@ const styles = StyleSheet.create({
     right: Spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: `${Colors.success}18`,
+    backgroundColor: '#ffffff20',
     paddingHorizontal: Spacing.sm,
     paddingVertical: 3,
     borderRadius: BorderRadius.full,
     gap: 4,
   },
   cacheBadgeText: {
-    color: Colors.success,
+    color: '#fff',
     fontSize: FontSize.xs,
     fontWeight: FontWeight.semibold,
   },
@@ -1492,14 +1598,14 @@ const styles = StyleSheet.create({
     right: Spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: `${Colors.primary}18`,
+    backgroundColor: '#ffffff20',
     paddingHorizontal: Spacing.sm,
     paddingVertical: 3,
     borderRadius: BorderRadius.full,
     gap: 4,
   },
   presetBadgeText: {
-    color: Colors.primary,
+    color: '#fff',
     fontSize: FontSize.xs,
     fontWeight: FontWeight.semibold,
   },
@@ -1509,29 +1615,29 @@ const styles = StyleSheet.create({
     right: Spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: `${Colors.primary}18`,
+    backgroundColor: '#ffffff20',
     paddingHorizontal: Spacing.sm,
     paddingVertical: 3,
     borderRadius: BorderRadius.full,
     gap: 4,
   },
   aiBadgeText: {
-    color: Colors.primary,
+    color: '#fff',
     fontSize: FontSize.xs,
     fontWeight: FontWeight.semibold,
   },
 
-  // ── Timeline
+  // ── Timeline — Stitch _2 dot + line
   timeline: {
     marginBottom: Spacing.lg,
   },
   timezoneBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.primaryLight,
+    backgroundColor: Colors.tagActive.bg,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.sm,
+    borderRadius: BorderRadius.md,
     marginBottom: Spacing.md,
     gap: 6,
   },
@@ -1558,17 +1664,17 @@ const styles = StyleSheet.create({
   legLine: {
     width: 2,
     flex: 1,
-    backgroundColor: Colors.divider,
+    backgroundColor: Colors.tagActive.border,
     marginVertical: 2,
   },
   legCard: {
     flex: 1,
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: Colors.tagActive.border,
     padding: Spacing.lg,
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
     marginLeft: Spacing.sm,
     ...Shadow.sm,
   },
@@ -1603,14 +1709,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF2F2',
   },
   legTime: {
-    color: Colors.textSecondary,
-    fontWeight: FontWeight.semibold,
-    fontSize: FontSize.sm,
+    color: Colors.textLight,
+    fontWeight: FontWeight.bold,
+    fontSize: FontSize.xs,
     letterSpacing: 0.3,
   },
   legCost: {
     color: Colors.primary,
-    fontWeight: FontWeight.bold,
+    fontWeight: FontWeight.semibold,
     fontSize: FontSize.sm,
   },
   legPlaceRow: {
@@ -1620,15 +1726,16 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   legPlace: {
-    fontSize: FontSize.lg,
-    fontWeight: FontWeight.semibold,
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.bold,
     color: Colors.text,
-    lineHeight: 24,
+    lineHeight: 22,
     flex: 1,
   },
   legTransport: {
-    fontSize: FontSize.sm,
+    fontSize: FontSize.xs,
     color: Colors.textLight,
+    marginTop: 2,
   },
   legTips: {
     marginTop: Spacing.sm,
@@ -1637,22 +1744,22 @@ const styles = StyleSheet.create({
     borderTopColor: Colors.divider,
   },
   legTipText: {
-    fontSize: FontSize.sm,
+    fontSize: FontSize.xs,
     color: Colors.textSecondary,
-    lineHeight: 20,
+    lineHeight: 18,
   },
 
-  // ── Maps
+  // ── Maps CTA
   mapsBtn: {
-    backgroundColor: Colors.primaryDark,
-    borderRadius: BorderRadius.lg,
-    paddingVertical: Spacing.lg,
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.xl,
+    height: 56,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: Spacing.sm,
     marginBottom: Spacing.xxl,
-    ...Shadow.colored(Colors.primaryDark),
+    ...Shadow.colored(Colors.primary),
   },
   mapsBtnText: {
     color: Colors.accent,
@@ -1667,7 +1774,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFBEB',
     borderWidth: 1,
     borderColor: '#FCD34D',
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
     padding: Spacing.md,
     marginBottom: Spacing.md,
     gap: Spacing.sm,
@@ -1691,10 +1798,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.xs,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1.5,
-    borderColor: Colors.primary,
+    height: 48,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: Colors.tagActive.border,
     backgroundColor: Colors.surface,
   },
   actionBtnActive: {
@@ -1703,7 +1810,7 @@ const styles = StyleSheet.create({
   },
   actionBtnText: {
     fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
+    fontWeight: FontWeight.bold,
     color: Colors.primary,
   },
   actionBtnTextActive: {
@@ -1715,14 +1822,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.xs,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.lg,
+    height: 48,
+    borderRadius: BorderRadius.xl,
     backgroundColor: Colors.primary,
     ...Shadow.sm,
   },
   actionBtnSecondaryText: {
     fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
+    fontWeight: FontWeight.bold,
     color: Colors.accent,
   },
 
@@ -1735,10 +1842,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.sm,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.lg,
+    height: 48,
+    borderRadius: BorderRadius.xl,
     borderWidth: 1.5,
-    borderColor: Colors.primary,
+    borderColor: Colors.tagActive.border,
     borderStyle: 'dashed',
   },
   addLegBtnText: {
@@ -1748,8 +1855,10 @@ const styles = StyleSheet.create({
   },
   addLegForm: {
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
     padding: Spacing.xl,
+    borderWidth: 1,
+    borderColor: Colors.tagActive.border,
     ...Shadow.md,
   },
   addLegFormTitle: {
@@ -1760,8 +1869,8 @@ const styles = StyleSheet.create({
   },
   addLegInput: {
     backgroundColor: Colors.background,
-    borderRadius: BorderRadius.sm,
-    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.xl,
+    paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
     fontSize: FontSize.md,
     color: Colors.text,
@@ -1784,7 +1893,7 @@ const styles = StyleSheet.create({
   },
   addLegCostInput: {
     backgroundColor: Colors.background,
-    borderRadius: BorderRadius.xs,
+    borderRadius: BorderRadius.md,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     fontSize: FontSize.md,
@@ -1796,19 +1905,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.full,
-    backgroundColor: Colors.background,
+    backgroundColor: Colors.tagActive.bg,
     marginRight: Spacing.sm,
   },
   typeChipActive: {
-    backgroundColor: Colors.primaryLight,
+    backgroundColor: Colors.primary,
   },
   typeChipText: {
     fontSize: FontSize.sm,
-    color: Colors.textSecondary,
+    color: Colors.primary,
     fontWeight: FontWeight.medium,
   },
   typeChipTextActive: {
-    color: Colors.primary,
+    color: '#fff',
     fontWeight: FontWeight.bold,
   },
   addLegFormBtns: {
@@ -1819,7 +1928,7 @@ const styles = StyleSheet.create({
   addLegConfirm: {
     flex: 1,
     backgroundColor: Colors.primary,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
     paddingVertical: Spacing.md,
     alignItems: 'center',
   },
@@ -1831,7 +1940,7 @@ const styles = StyleSheet.create({
   addLegCancel: {
     flex: 1,
     backgroundColor: Colors.background,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
     paddingVertical: Spacing.md,
     alignItems: 'center',
   },
@@ -1841,16 +1950,15 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
   },
 
-  // ── Presets
+  // ── Presets — Stitch card style
   presetArea: {
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.md,
+    paddingTop: Spacing.lg,
   },
   sectionLabel: {
-    fontSize: FontSize.xxl,
+    fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
     color: Colors.text,
-    letterSpacing: -0.3,
     marginBottom: Spacing.xs,
   },
   sectionDesc: {
@@ -1860,9 +1968,11 @@ const styles = StyleSheet.create({
   },
   presetCard: {
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
     padding: Spacing.lg,
     marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.tagActive.border,
     ...Shadow.sm,
   },
   presetHeader: {
@@ -1872,7 +1982,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   presetTitle: {
-    fontSize: FontSize.lg,
+    fontSize: FontSize.md,
     fontWeight: FontWeight.bold,
     color: Colors.text,
     flex: 1,
@@ -1887,15 +1997,15 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 3,
-    borderRadius: BorderRadius.xs,
+    borderRadius: BorderRadius.full,
     fontWeight: FontWeight.medium,
     overflow: 'hidden',
   },
 
-  // ── Place Detail Modal ──
+  // ── Place Detail Modal — Stitch card style
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'flex-end',
   },
   modalContent: {
@@ -2015,7 +2125,7 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     backgroundColor: Colors.primary,
     paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.xl,
   },
   modalActionText: {
     fontSize: FontSize.sm,
@@ -2028,9 +2138,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.sm,
-    backgroundColor: Colors.primaryLight,
+    backgroundColor: Colors.tagActive.bg,
     paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.xl,
   },
   modalActionTextSecondary: {
     fontSize: FontSize.sm,

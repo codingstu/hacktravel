@@ -30,31 +30,30 @@ class Settings(BaseSettings):
     CACHE_TTL_COLD: int = 259200  # 3 days for cold destinations
 
     # ── LLM Providers ────────────────────────────────────
-    # Primary: OpenAI-compatible gateway. Root cause investigation shows network is fast,
-    # but generation becomes slow when prompt/output are too large, so cap reasoning/output.
+    # Primary: ShowQR gateway — tested fastest models, fail fast on timeout
     LLM_PRIMARY_BASE_URL: str = "https://openai.showqr.eu.cc/v1"
     LLM_PRIMARY_API_KEY: str = ""
-    LLM_PRIMARY_MODEL: str = "gpt-5.4"
-    LLM_PRIMARY_FALLBACK_MODELS: str = ""
-    LLM_PRIMARY_TIMEOUT: int = 45
-    LLM_PRIMARY_REASONING_EFFORT: str = "low"
-    LLM_PRIMARY_MAX_COMPLETION_TOKENS: int = 900
-    LLM_PRIMARY_MAX_LEGS: int = 8
-    LLM_PRIMARY_MAX_TIPS_PER_LEG: int = 2
+    LLM_PRIMARY_MODEL: str = "qwen3-235b-a22b-instruct"
+    LLM_PRIMARY_FALLBACK_MODELS: str = "deepseek-v3.1,deepseek-v3.2"
+    LLM_PRIMARY_TIMEOUT: int = 35
+    LLM_PRIMARY_REASONING_EFFORT: str = ""
+    LLM_PRIMARY_MAX_COMPLETION_TOKENS: int = 0
+    LLM_PRIMARY_MAX_LEGS: int = 6
+    LLM_PRIMARY_MAX_TIPS_PER_LEG: int = 1
 
-    # First backup: configurable (may be NVIDIA NIM or SiliconFlow depending on .env)
-    LLM_BACKUP1_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
+    # First backup: SiliconFlow (保底 — reliable domestic provider)
+    LLM_BACKUP1_BASE_URL: str = "https://api.siliconflow.cn/v1"
     LLM_BACKUP1_API_KEY: str = ""
-    LLM_BACKUP1_MODEL: str = "meta/llama-3.1-70b-instruct"
-    LLM_BACKUP1_FALLBACK_MODELS: str = ""
+    LLM_BACKUP1_MODEL: str = "Qwen/Qwen2.5-72B-Instruct"
+    LLM_BACKUP1_FALLBACK_MODELS: str = "deepseek-ai/DeepSeek-V3,deepseek-ai/DeepSeek-R1"
     LLM_BACKUP1_TIMEOUT: int = 30
 
-    # Second backup: configurable
-    LLM_BACKUP2_BASE_URL: str = "https://api.siliconflow.cn/v1"
+    # Second backup: NVIDIA NIM (last resort)
+    LLM_BACKUP2_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
     LLM_BACKUP2_API_KEY: str = ""
-    LLM_BACKUP2_MODEL: str = "deepseek-ai/DeepSeek-V3"
+    LLM_BACKUP2_MODEL: str = "z-ai/glm4.7"
     LLM_BACKUP2_FALLBACK_MODELS: str = ""
-    LLM_BACKUP2_TIMEOUT: int = 30
+    LLM_BACKUP2_TIMEOUT: int = 35
 
     LLM_TEMPERATURE: float = 0.2
 

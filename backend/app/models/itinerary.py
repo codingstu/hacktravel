@@ -16,6 +16,12 @@ from pydantic import BaseModel, Field, field_validator
 class Currency(str, enum.Enum):
     CNY = "CNY"
     USD = "USD"
+    EUR = "EUR"
+    GBP = "GBP"
+    JPY = "JPY"
+    TRY = "TRY"
+    THB = "THB"
+    KRW = "KRW"
 
 
 class ActivityType(str, enum.Enum):
@@ -57,6 +63,21 @@ class Continent(str, enum.Enum):
 class Money(BaseModel):
     amount: float = Field(..., ge=0, description="金额")
     currency: Currency = Field(default=Currency.CNY, description="币种")
+
+    @field_validator("currency", mode="before")
+    @classmethod
+    def coerce_currency(cls, v):
+        """Normalize unknown currency codes to CNY."""
+        if isinstance(v, str):
+            v_upper = v.upper().strip()
+            # Common LLM aliases
+            aliases = {"RMB": "CNY", "YUAN": "CNY", "DOLLAR": "USD", "EURO": "EUR", "YEN": "JPY", "LIRA": "TRY"}
+            v_upper = aliases.get(v_upper, v_upper)
+            try:
+                return Currency(v_upper)
+            except ValueError:
+                return Currency.CNY
+        return v
 
 
 class Place(BaseModel):
@@ -110,6 +131,13 @@ class ItineraryLeg(BaseModel):
     transport: Optional[Transport] = None
     estimated_cost: Money
     tips: list[str] = Field(default_factory=list)
+
+    @field_validator("tips", mode="before")
+    @classmethod
+    def coerce_tips(cls, v):
+        if isinstance(v, str):
+            return [v] if v else []
+        return v if v else []
 
 
 class ItinerarySummary(BaseModel):
