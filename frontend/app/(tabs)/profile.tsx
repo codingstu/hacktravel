@@ -11,7 +11,7 @@
  *
  * 对接真实后端 API，使用 device_id 作为匿名用户标识。
  */
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -30,6 +30,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
 import {
   Colors,
   Spacing,
@@ -37,9 +38,11 @@ import {
   FontWeight,
   BorderRadius,
   Shadow,
+  ThemeColors,
 } from '@/constants/Theme';
 import { t, setLocale } from '@/services/i18n';
 import { getDestinationImage } from '@/services/images';
+import { useThemeMode } from '@/services/theme';
 import {
   fetchProfile,
   fetchProfileStats,
@@ -80,6 +83,7 @@ const getDeviceId = async () => {
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
+  const { colors, setMode } = useThemeMode();
 
   const [viewState, setViewState] = useState<ViewState>('loading');
   const [refreshing, setRefreshing] = useState(false);
@@ -93,6 +97,10 @@ export default function ProfileScreen() {
   const [alerts, setAlerts] = useState<PriceAlertItem[]>([]);
   const [alertsVisible, setAlertsVisible] = useState(false);
   const [manageVisible, setManageVisible] = useState(false);
+  const [languageVisible, setLanguageVisible] = useState(false);
+  const [currencyVisible, setCurrencyVisible] = useState(false);
+  const [logoutVisible, setLogoutVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
 
   // ── 编辑资料状态 ──
   const [editVisible, setEditVisible] = useState(false);
@@ -132,6 +140,20 @@ export default function ProfileScreen() {
         setLocale(prefsRes.preferences.language as 'zh' | 'en');
       }
 
+      // 同步主题设置
+      setMode(prefsRes.preferences.dark_mode ? 'dark' : 'light');
+
+      if (profileRes.profile.email) {
+        try {
+          const alertsRes = await fetchPriceAlerts(profileRes.profile.email);
+          setAlerts(alertsRes.alerts);
+        } catch {
+          setAlerts([]);
+        }
+      } else {
+        setAlerts([]);
+      }
+
       setViewState('idle');
     } catch (error) {
       console.error('Failed to load profile data:', error);
@@ -139,11 +161,19 @@ export default function ProfileScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [setMode]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = setTimeout(() => setToastMessage(''), 1500);
+    return () => clearTimeout(timer);
+  }, [toastMessage]);
+
+  const themedStyles = useMemo(() => createStyles(colors), [colors]);
 
   // ── 事件处理 ──
   const handleEditProfile = useCallback(() => {
@@ -170,17 +200,58 @@ export default function ProfileScreen() {
   const handleShare = useCallback(async () => {
     const shareText = `${profile?.name || 'Traveler'} · HackTravel Profile`;
     const shareUrl = typeof window !== 'undefined' ? window.location.href : undefined;
-    try {
-      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(shareUrl || shareText);
-        Alert.alert(t('profile.share'), t('profile.shareCopied'));
-        return;
+    const fallbackText = shareUrl ? `${shareText} ${shareUrl}` : shareText;
+    if (Platform.OS === 'web') {
+      try {
+        if (typeof navigator !== 'undefined' && navigator.share) {
+          await navigator.share({ title: 'HackTravel', text: shareText, url: shareUrl });
+          return;
+        }
+      } catch {
+        // fall back to clipboard
       }
-      await Share.share({ message: shareText, url: shareUrl });
+      try {
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(shareUrl || shareText);
+          setToastMessage(t('profile.shareCopied'));
+          return;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    try {
+      await Share.share({ message: fallbackText });
     } catch {
-      Alert.alert(t('common.error'));
+      setToastMessage(t('common.error'));
     }
   }, [profile]);
+
+  const handlePickAvatar = useCallback(async () => {
+    if (!deviceId) return;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        setToastMessage(t('common.error'));
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      const asset = result.assets[0];
+      const res = await updateProfile({
+        device_id: deviceId,
+        avatar_url: asset.uri,
+      });
+      setProfile(res.profile);
+    } catch {
+      setToastMessage(t('common.error'));
+    }
+  }, [deviceId]);
 
   const handleSettings = useCallback(() => {
     // 滚动到偏好区块
@@ -190,23 +261,19 @@ export default function ProfileScreen() {
   }, []);
 
   const handleLogout = useCallback(() => {
-    Alert.alert(t('profile.logout'), t('profile.logoutConfirm'), [
-      { text: t('plan.cancel'), style: 'cancel' },
-      {
-        text: t('profile.logout'),
-        style: 'destructive',
-        onPress: async () => {
-          await AsyncStorage.removeItem('device_id');
-          setDeviceId('');
-          setProfile(null);
-          setStats(null);
-          setPreferences(null);
-          setItineraries([]);
-          setAlerts([]);
-          await loadData();
-        },
-      },
-    ]);
+    setLogoutVisible(true);
+  }, []);
+
+  const confirmLogout = useCallback(async () => {
+    await AsyncStorage.removeItem('device_id');
+    setDeviceId('');
+    setProfile(null);
+    setStats(null);
+    setPreferences(null);
+    setItineraries([]);
+    setAlerts([]);
+    setLogoutVisible(false);
+    await loadData();
   }, [loadData]);
 
   const handleViewAllAlerts = useCallback(async () => {
@@ -229,58 +296,55 @@ export default function ProfileScreen() {
   }, []);
 
   const handleLanguageSelect = useCallback(() => {
-    Alert.alert(
-      t('profile.preferredLanguage'),
-      undefined,
-      LANGUAGE_OPTIONS.map(lang => ({
-        text: lang.label,
-        onPress: async () => {
-          if (!deviceId) return;
-          try {
-            const res = await updatePreferences({ device_id: deviceId, language: lang.value });
-            setPreferences(res.preferences);
-            if (lang.value === 'zh' || lang.value === 'en') {
-              setLocale(lang.value as 'zh' | 'en');
-            }
-          } catch (e) {
-            Alert.alert(t('common.error'));
-          }
-        },
-      })),
-    );
-  }, [deviceId]);
+    setLanguageVisible(true);
+  }, []);
+
+  const handleSelectLanguage = useCallback(async (value: 'zh' | 'en') => {
+    if (!deviceId) return;
+    const previous = preferences?.language || 'en';
+    setPreferences(prev => prev ? { ...prev, language: value } : null);
+    setLocale(value);
+    setLanguageVisible(false);
+    try {
+      await updatePreferences({ device_id: deviceId, language: value });
+    } catch (e) {
+      setPreferences(prev => prev ? { ...prev, language: previous } : null);
+      setLocale(previous as 'zh' | 'en');
+      setToastMessage(t('common.error'));
+    }
+  }, [deviceId, preferences]);
 
   const handleCurrencySelect = useCallback(() => {
-    Alert.alert(
-      t('profile.defaultCurrency'),
-      undefined,
-      CURRENCY_OPTIONS.map(cur => ({
-        text: cur,
-        onPress: async () => {
-          if (!deviceId) return;
-          try {
-            const res = await updatePreferences({ device_id: deviceId, currency: cur });
-            setPreferences(res.preferences);
-          } catch (e) {
-            Alert.alert(t('common.error'));
-          }
-        },
-      })),
-    );
-  }, [deviceId]);
+    setCurrencyVisible(true);
+  }, []);
+
+  const handleSelectCurrency = useCallback(async (value: string) => {
+    if (!deviceId) return;
+    const previous = preferences?.currency || 'USD';
+    setPreferences(prev => prev ? { ...prev, currency: value } : null);
+    setCurrencyVisible(false);
+    try {
+      await updatePreferences({ device_id: deviceId, currency: value });
+    } catch (e) {
+      setPreferences(prev => prev ? { ...prev, currency: previous } : null);
+      setToastMessage(t('common.error'));
+    }
+  }, [deviceId, preferences]);
 
   const handleToggleDarkMode = useCallback(async (value: boolean) => {
     if (!deviceId) return;
     try {
       // 乐观更新
       setPreferences(prev => prev ? { ...prev, dark_mode: value } : null);
+      setMode(value ? 'dark' : 'light');
       await updatePreferences({ device_id: deviceId, dark_mode: value });
     } catch (e) {
       // 恢复
       setPreferences(prev => prev ? { ...prev, dark_mode: !value } : null);
-      Alert.alert(t('common.error'));
+      setMode(!value ? 'dark' : 'light');
+      setToastMessage(t('common.error'));
     }
-  }, [deviceId]);
+  }, [deviceId, setMode]);
 
   const handleDeleteItinerary = useCallback((id: string) => {
     Alert.alert(t('common.delete'), t('profile.deleteConfirm'), [
@@ -304,9 +368,9 @@ export default function ProfileScreen() {
   // ── 空态 / 加载态 / 错误态 ──
   if (viewState === 'loading') {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
-        <View style={styles.centerContent}>
-          <Text style={styles.loadingText}>{t('common.loading')}</Text>
+      <View style={[themedStyles.container, { paddingTop: insets.top }]}>
+        <View style={themedStyles.centerContent}>
+          <Text style={themedStyles.loadingText}>{t('common.loading')}</Text>
         </View>
       </View>
     );
@@ -314,32 +378,32 @@ export default function ProfileScreen() {
 
   if (viewState === 'error') {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
-        <View style={styles.centerContent}>
-          <Ionicons name="alert-circle-outline" size={48} color={Colors.error} />
-          <Text style={styles.errorText}>{t('common.error')}</Text>
+      <View style={[themedStyles.container, { paddingTop: insets.top }]}>
+        <View style={themedStyles.centerContent}>
+          <Ionicons name="alert-circle-outline" size={48} color={colors.error} />
+          <Text style={themedStyles.errorText}>{t('common.error')}</Text>
         </View>
       </View>
     );
   }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[themedStyles.container, { paddingTop: insets.top }]}>
       {/* ── 顶部标题栏 ── */}
-      <View style={styles.header}>
+      <View style={themedStyles.header}>
         <TouchableOpacity onPress={handleSettings} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Ionicons name="settings-outline" size={24} color={Colors.primary} />
+          <Ionicons name="settings-outline" size={24} color={colors.primary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{t('profile.title')}</Text>
+        <Text style={themedStyles.headerTitle}>{t('profile.title')}</Text>
         <TouchableOpacity onPress={handleLogout} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Ionicons name="log-out-outline" size={24} color={Colors.primary} />
+          <Ionicons name="log-out-outline" size={24} color={colors.primary} />
         </TouchableOpacity>
       </View>
 
       <ScrollView
         ref={scrollRef}
-        style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
+        style={themedStyles.scrollView}
+        contentContainerStyle={[themedStyles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           Platform.OS === 'web'
@@ -348,114 +412,114 @@ export default function ProfileScreen() {
         }
       >
         {/* ── 用户头像卡片 ── */}
-        <View style={[styles.profileCard, Shadow.md]}>
-          <View style={styles.avatarContainer}>
+        <View style={[themedStyles.profileCard, Shadow.md]}>
+          <TouchableOpacity style={themedStyles.avatarContainer} onPress={handlePickAvatar}>
             <Image
               source={{ uri: profile?.avatar_url || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop&auto=format&q=80' }}
-              style={styles.avatar}
+              style={themedStyles.avatar}
             />
-            <View style={styles.cameraIconWrap}>
-              <Ionicons name="camera" size={14} color={Colors.textOnPrimary} />
+            <View style={themedStyles.cameraIconWrap}>
+              <Ionicons name="camera" size={14} color={colors.textOnPrimary} />
             </View>
-          </View>
-          <Text style={styles.userName}>{profile?.name || 'Traveler'}</Text>
-          <View style={styles.taglineRow}>
-            <Ionicons name="checkmark-circle" size={16} color={Colors.primary} />
-            <Text style={styles.taglineText}>
+          </TouchableOpacity>
+          <Text style={themedStyles.userName}>{profile?.name || 'Traveler'}</Text>
+          <View style={themedStyles.taglineRow}>
+            <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
+            <Text style={themedStyles.taglineText}>
               {profile?.tagline || 'Travel Enthusiast'} • {profile?.countries_visited || 0} {t('profile.countries')}
             </Text>
           </View>
-          <View style={styles.actionRow}>
-            <TouchableOpacity style={styles.editProfileBtn} onPress={handleEditProfile}>
-              <Text style={styles.editProfileText}>{t('profile.editProfile')}</Text>
+          <View style={themedStyles.actionRow}>
+            <TouchableOpacity style={themedStyles.editProfileBtn} onPress={handleEditProfile}>
+              <Text style={themedStyles.editProfileText}>{t('profile.editProfile')}</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.shareBtn} onPress={handleShare}>
-              <Ionicons name="share-social-outline" size={20} color={Colors.primary} />
+            <TouchableOpacity style={themedStyles.shareBtn} onPress={handleShare}>
+              <Ionicons name="share-social-outline" size={20} color={colors.primary} />
             </TouchableOpacity>
           </View>
         </View>
 
         {/* ── 统计数据栏 ── */}
-        <View style={styles.statsRow}>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{stats?.trips || 0}</Text>
-            <Text style={styles.statLabel}>{t('profile.trips')}</Text>
+        <View style={themedStyles.statsRow}>
+          <View style={themedStyles.statItem}>
+            <Text style={themedStyles.statNumber}>{stats?.trips || 0}</Text>
+            <Text style={themedStyles.statLabel}>{t('profile.trips')}</Text>
           </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{stats?.saved || 0}</Text>
-            <Text style={styles.statLabel}>{t('profile.saved')}</Text>
+          <View style={themedStyles.statItem}>
+            <Text style={themedStyles.statNumber}>{stats?.saved || 0}</Text>
+            <Text style={themedStyles.statLabel}>{t('profile.saved')}</Text>
           </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{stats?.reviews || 0}</Text>
-            <Text style={styles.statLabel}>{t('profile.reviews')}</Text>
+          <View style={themedStyles.statItem}>
+            <Text style={themedStyles.statNumber}>{stats?.reviews || 0}</Text>
+            <Text style={themedStyles.statLabel}>{t('profile.reviews')}</Text>
           </View>
         </View>
 
         {/* ── Active Price Alerts ── */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>{t('profile.activePriceAlerts')}</Text>
+        <View style={themedStyles.sectionHeader}>
+          <Text style={themedStyles.sectionTitle}>{t('profile.activePriceAlerts')}</Text>
           <TouchableOpacity onPress={handleViewAllAlerts}>
-            <Text style={styles.sectionAction}>{t('profile.viewAll')}</Text>
+            <Text style={themedStyles.sectionAction}>{t('profile.viewAll')}</Text>
           </TouchableOpacity>
         </View>
         {alerts.length === 0 ? (
-          <View style={[styles.alertCard, Shadow.sm]}>
-            <View style={styles.alertIconWrap}>
-              <Ionicons name="notifications-outline" size={22} color={Colors.primary} />
+          <View style={[themedStyles.alertCard, Shadow.sm]}>
+            <View style={themedStyles.alertIconWrap}>
+              <Ionicons name="notifications-outline" size={22} color={colors.primary} />
             </View>
-            <View style={styles.alertContent}>
-              <Text style={styles.alertRoute}>{t('profile.noAlerts')}</Text>
-              <Text style={styles.alertTarget}>{t('profile.setEmailHint')}</Text>
+            <View style={themedStyles.alertContent}>
+              <Text style={themedStyles.alertRoute}>{t('profile.noAlerts')}</Text>
+              <Text style={themedStyles.alertTarget}>{t('profile.setEmailHint')}</Text>
             </View>
           </View>
         ) : (
           alerts.slice(0, 1).map(alert => (
-            <View key={alert.alert_id} style={[styles.alertCard, Shadow.sm]}>
-              <View style={styles.alertIconWrap}>
-                <Ionicons name="notifications-outline" size={22} color={Colors.primary} />
+            <View key={alert.alert_id} style={[themedStyles.alertCard, Shadow.sm]}>
+              <View style={themedStyles.alertIconWrap}>
+                <Ionicons name="notifications-outline" size={22} color={colors.primary} />
               </View>
-              <View style={styles.alertContent}>
-                <Text style={styles.alertRoute}>
+              <View style={themedStyles.alertContent}>
+                <Text style={themedStyles.alertRoute}>
                   {alert.origin} {t('profile.to')} {alert.destination}
                 </Text>
-                <Text style={styles.alertTarget}>
+                <Text style={themedStyles.alertTarget}>
                   {t('profile.targetPrice')}: {t('profile.under')} {alert.max_price}
                 </Text>
               </View>
-              <View style={styles.alertDropWrap}>
-                <Text style={styles.alertDropText}>{alert.status}</Text>
+              <View style={themedStyles.alertDropWrap}>
+                <Text style={themedStyles.alertDropText}>{alert.status}</Text>
               </View>
             </View>
           ))
         )}
 
         {/* ── Saved Itineraries ── */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>{t('profile.savedItineraries')}</Text>
+        <View style={themedStyles.sectionHeader}>
+          <Text style={themedStyles.sectionTitle}>{t('profile.savedItineraries')}</Text>
           <TouchableOpacity onPress={handleManageItineraries}>
-            <Text style={styles.sectionAction}>{t('profile.manage')}</Text>
+            <Text style={themedStyles.sectionAction}>{t('profile.manage')}</Text>
           </TouchableOpacity>
         </View>
         {itineraries.length === 0 ? (
-          <Text style={{ color: Colors.textSecondary, textAlign: 'center', marginVertical: Spacing.lg }}>
+          <Text style={{ color: colors.textSecondary, textAlign: 'center', marginVertical: Spacing.lg }}>
             {t('profile.noItineraries')}
           </Text>
         ) : (
           itineraries.map(itinerary => (
-            <View key={itinerary.itinerary_id} style={[styles.itineraryCard, Shadow.sm]}>
+            <View key={itinerary.itinerary_id} style={[themedStyles.itineraryCard, Shadow.sm]}>
               <Image
                 source={{ uri: itinerary.cover_image || getDestinationImage(itinerary.destination, 800, 400) }}
-                style={styles.itineraryImage}
+                style={themedStyles.itineraryImage}
               />
               <TouchableOpacity
-                style={styles.itineraryBookmark}
+                style={themedStyles.itineraryBookmark}
                 onPress={() => handleDeleteItinerary(itinerary.itinerary_id)}
               >
-                <Ionicons name="bookmark" size={20} color={Colors.primary} />
+                <Ionicons name="bookmark" size={20} color={colors.primary} />
               </TouchableOpacity>
-              <View style={styles.itineraryInfo}>
-                <Text style={styles.itineraryTitle}>{itinerary.title}</Text>
-                <Text style={styles.itineraryMeta}>
+              <View style={themedStyles.itineraryInfo}>
+                <Text style={themedStyles.itineraryTitle}>{itinerary.title}</Text>
+                <Text style={themedStyles.itineraryMeta}>
                   {itinerary.stops} {t('profile.stops')} • {itinerary.days} {t('profile.days')}
                 </Text>
               </View>
@@ -464,54 +528,54 @@ export default function ProfileScreen() {
         )}
 
         {/* ── Personal Preferences ── */}
-        <Text style={[styles.sectionTitle, { marginTop: Spacing.xl, marginBottom: Spacing.md }]}>
+        <Text style={[themedStyles.sectionTitle, { marginTop: Spacing.xl, marginBottom: Spacing.md }]}>
           {t('profile.personalPreferences')}
         </Text>
 
         {/* Dark Mode */}
-        <View style={[styles.prefRow, Shadow.sm]}>
-          <View style={styles.prefLeft}>
-            <View style={[styles.prefIconWrap, { backgroundColor: '#1E293B' }]}>
+        <View style={[themedStyles.prefRow, Shadow.sm]}>
+          <View style={themedStyles.prefLeft}>
+            <View style={[themedStyles.prefIconWrap, { backgroundColor: colors.secondaryLight }]}>
               <Ionicons name="moon" size={18} color="#FFFFFF" />
             </View>
-            <Text style={styles.prefLabel}>{t('profile.darkMode')}</Text>
+            <Text style={themedStyles.prefLabel}>{t('profile.darkMode')}</Text>
           </View>
           <Switch
             value={preferences?.dark_mode || false}
             onValueChange={handleToggleDarkMode}
-            trackColor={{ false: Colors.tag.bg, true: Colors.primary }}
-            thumbColor={Colors.surface}
-            ios_backgroundColor={Colors.tag.bg}
+            trackColor={{ false: colors.tag.bg, true: colors.primary }}
+            thumbColor={colors.surface}
+            ios_backgroundColor={colors.tag.bg}
           />
         </View>
 
         {/* Preferred Language */}
-        <TouchableOpacity style={[styles.prefRow, Shadow.sm]} onPress={handleLanguageSelect}>
-          <View style={styles.prefLeft}>
-            <View style={[styles.prefIconWrap, { backgroundColor: Colors.primary }]}>
+        <TouchableOpacity style={[themedStyles.prefRow, Shadow.sm]} onPress={handleLanguageSelect}>
+          <View style={themedStyles.prefLeft}>
+            <View style={[themedStyles.prefIconWrap, { backgroundColor: colors.primary }]}>
               <Ionicons name="globe-outline" size={18} color="#FFFFFF" />
             </View>
-            <Text style={styles.prefLabel}>{t('profile.preferredLanguage')}</Text>
+            <Text style={themedStyles.prefLabel}>{t('profile.preferredLanguage')}</Text>
           </View>
-          <View style={styles.prefRight}>
-            <Text style={styles.prefValue}>
+          <View style={themedStyles.prefRight}>
+            <Text style={themedStyles.prefValue}>
               {LANGUAGE_OPTIONS.find(l => l.value === preferences?.language)?.label || 'English'}
             </Text>
-            <Ionicons name="chevron-forward" size={18} color={Colors.textLight} />
+            <Ionicons name="chevron-forward" size={18} color={colors.textLight} />
           </View>
         </TouchableOpacity>
 
         {/* Default Currency */}
-        <TouchableOpacity style={[styles.prefRow, Shadow.sm]} onPress={handleCurrencySelect}>
-          <View style={styles.prefLeft}>
-            <View style={[styles.prefIconWrap, { backgroundColor: Colors.primary }]}>
+        <TouchableOpacity style={[themedStyles.prefRow, Shadow.sm]} onPress={handleCurrencySelect}>
+          <View style={themedStyles.prefLeft}>
+            <View style={[themedStyles.prefIconWrap, { backgroundColor: colors.primary }]}>
               <Ionicons name="wallet-outline" size={18} color="#FFFFFF" />
             </View>
-            <Text style={styles.prefLabel}>{t('profile.defaultCurrency')}</Text>
+            <Text style={themedStyles.prefLabel}>{t('profile.defaultCurrency')}</Text>
           </View>
-          <View style={styles.prefRight}>
-            <Text style={styles.prefValue}>{preferences?.currency || 'USD'}</Text>
-            <Ionicons name="chevron-forward" size={18} color={Colors.textLight} />
+          <View style={themedStyles.prefRight}>
+            <Text style={themedStyles.prefValue}>{preferences?.currency || 'USD'}</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.textLight} />
           </View>
         </TouchableOpacity>
 
@@ -519,23 +583,23 @@ export default function ProfileScreen() {
 
       {editVisible && (
         <Modal transparent visible={editVisible} animationType="fade">
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>{t('profile.editProfile')}</Text>
+          <View style={themedStyles.modalOverlay}>
+            <View style={themedStyles.modalCard}>
+              <Text style={themedStyles.modalTitle}>{t('profile.editProfile')}</Text>
               <TextInput
-                style={styles.modalInput}
+                style={themedStyles.modalInput}
                 placeholder={t('profile.name')}
                 value={editName}
                 onChangeText={setEditName}
               />
               <TextInput
-                style={styles.modalInput}
+                style={themedStyles.modalInput}
                 placeholder={t('profile.tagline')}
                 value={editTagline}
                 onChangeText={setEditTagline}
               />
               <TextInput
-                style={styles.modalInput}
+                style={themedStyles.modalInput}
                 placeholder={t('profile.email')}
                 value={editEmail}
                 onChangeText={setEditEmail}
@@ -543,18 +607,18 @@ export default function ProfileScreen() {
                 autoCapitalize="none"
               />
               <TextInput
-                style={styles.modalInput}
+                style={themedStyles.modalInput}
                 placeholder={t('profile.countriesVisited')}
                 value={editCountries}
                 onChangeText={setEditCountries}
                 keyboardType="numeric"
               />
-              <View style={styles.modalActions}>
-                <TouchableOpacity style={styles.modalCancel} onPress={() => setEditVisible(false)}>
-                  <Text style={styles.modalCancelText}>{t('plan.cancel')}</Text>
+              <View style={themedStyles.modalActions}>
+                <TouchableOpacity style={themedStyles.modalCancel} onPress={() => setEditVisible(false)}>
+                  <Text style={themedStyles.modalCancelText}>{t('plan.cancel')}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.modalSave} onPress={handleSaveProfile}>
-                  <Text style={styles.modalSaveText}>{t('common.save')}</Text>
+                <TouchableOpacity style={themedStyles.modalSave} onPress={handleSaveProfile}>
+                  <Text style={themedStyles.modalSaveText}>{t('common.save')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -564,24 +628,24 @@ export default function ProfileScreen() {
 
       {alertsVisible && (
         <Modal transparent visible={alertsVisible} animationType="slide">
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCardLarge}>
-              <Text style={styles.modalTitle}>{t('profile.activePriceAlerts')}</Text>
+          <View style={themedStyles.modalOverlay}>
+            <View style={themedStyles.modalCardLarge}>
+              <Text style={themedStyles.modalTitle}>{t('profile.activePriceAlerts')}</Text>
               <ScrollView style={{ maxHeight: 360 }}>
                 {alerts.length === 0 ? (
-                  <Text style={styles.modalEmpty}>{t('profile.noAlerts')}</Text>
+                  <Text style={themedStyles.modalEmpty}>{t('profile.noAlerts')}</Text>
                 ) : (
                   alerts.map(alert => (
-                    <View key={alert.alert_id} style={styles.alertListItem}>
-                      <Text style={styles.alertRoute}>{alert.origin} {t('profile.to')} {alert.destination}</Text>
-                      <Text style={styles.alertTarget}>{t('profile.targetPrice')}: {alert.max_price}</Text>
-                      <Text style={styles.alertTodayText}>{alert.status}</Text>
+                    <View key={alert.alert_id} style={themedStyles.alertListItem}>
+                      <Text style={themedStyles.alertRoute}>{alert.origin} {t('profile.to')} {alert.destination}</Text>
+                      <Text style={themedStyles.alertTarget}>{t('profile.targetPrice')}: {alert.max_price}</Text>
+                      <Text style={themedStyles.alertTodayText}>{alert.status}</Text>
                     </View>
                   ))
                 )}
               </ScrollView>
-              <TouchableOpacity style={styles.modalCancel} onPress={() => setAlertsVisible(false)}>
-                <Text style={styles.modalCancelText}>{t('common.close')}</Text>
+              <TouchableOpacity style={themedStyles.modalCancel} onPress={() => setAlertsVisible(false)}>
+                <Text style={themedStyles.modalCancelText}>{t('common.close')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -590,44 +654,121 @@ export default function ProfileScreen() {
 
       {manageVisible && (
         <Modal transparent visible={manageVisible} animationType="slide">
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCardLarge}>
-              <Text style={styles.modalTitle}>{t('profile.savedItineraries')}</Text>
+          <View style={themedStyles.modalOverlay}>
+            <View style={themedStyles.modalCardLarge}>
+              <Text style={themedStyles.modalTitle}>{t('profile.savedItineraries')}</Text>
               <ScrollView style={{ maxHeight: 360 }}>
                 {itineraries.length === 0 ? (
-                  <Text style={styles.modalEmpty}>{t('profile.noItineraries')}</Text>
+                  <Text style={themedStyles.modalEmpty}>{t('profile.noItineraries')}</Text>
                 ) : (
                   itineraries.map(itinerary => (
-                    <View key={itinerary.itinerary_id} style={styles.alertListItem}>
-                      <Text style={styles.itineraryTitle}>{itinerary.title}</Text>
-                      <Text style={styles.itineraryMeta}>
+                    <View key={itinerary.itinerary_id} style={themedStyles.alertListItem}>
+                      <Text style={themedStyles.itineraryTitle}>{itinerary.title}</Text>
+                      <Text style={themedStyles.itineraryMeta}>
                         {itinerary.stops} {t('profile.stops')} • {itinerary.days} {t('profile.days')}
                       </Text>
                       <TouchableOpacity
-                        style={styles.deleteInline}
+                        style={themedStyles.deleteInline}
                         onPress={() => handleDeleteItinerary(itinerary.itinerary_id)}
                       >
-                        <Text style={styles.deleteInlineText}>{t('common.delete')}</Text>
+                        <Text style={themedStyles.deleteInlineText}>{t('common.delete')}</Text>
                       </TouchableOpacity>
                     </View>
                   ))
                 )}
               </ScrollView>
-              <TouchableOpacity style={styles.modalCancel} onPress={() => setManageVisible(false)}>
-                <Text style={styles.modalCancelText}>{t('common.close')}</Text>
+              <TouchableOpacity style={themedStyles.modalCancel} onPress={() => setManageVisible(false)}>
+                <Text style={themedStyles.modalCancelText}>{t('common.close')}</Text>
               </TouchableOpacity>
             </View>
           </View>
         </Modal>
       )}
+
+      {languageVisible && (
+        <Modal transparent visible={languageVisible} animationType="fade">
+          <View style={themedStyles.modalOverlay}>
+            <View style={themedStyles.modalCard}>
+              <Text style={themedStyles.modalTitle}>{t('profile.preferredLanguage')}</Text>
+              {LANGUAGE_OPTIONS.map(option => (
+                <TouchableOpacity
+                  key={option.value}
+                  style={themedStyles.optionRow}
+                  onPress={() => handleSelectLanguage(option.value as 'zh' | 'en')}
+                >
+                  <Text style={themedStyles.optionText}>{option.label}</Text>
+                  {preferences?.language === option.value && (
+                    <Ionicons name="checkmark" size={18} color={colors.primary} />
+                  )}
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity style={themedStyles.modalCancel} onPress={() => setLanguageVisible(false)}>
+                <Text style={themedStyles.modalCancelText}>{t('common.close')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {currencyVisible && (
+        <Modal transparent visible={currencyVisible} animationType="fade">
+          <View style={themedStyles.modalOverlay}>
+            <View style={themedStyles.modalCard}>
+              <Text style={themedStyles.modalTitle}>{t('profile.defaultCurrency')}</Text>
+              {CURRENCY_OPTIONS.map(option => (
+                <TouchableOpacity
+                  key={option}
+                  style={themedStyles.optionRow}
+                  onPress={() => handleSelectCurrency(option)}
+                >
+                  <Text style={themedStyles.optionText}>{option}</Text>
+                  {preferences?.currency === option && (
+                    <Ionicons name="checkmark" size={18} color={colors.primary} />
+                  )}
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity style={themedStyles.modalCancel} onPress={() => setCurrencyVisible(false)}>
+                <Text style={themedStyles.modalCancelText}>{t('common.close')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {logoutVisible && (
+        <Modal transparent visible={logoutVisible} animationType="fade">
+          <View style={themedStyles.modalOverlay}>
+            <View style={themedStyles.modalCard}>
+              <Text style={themedStyles.modalTitle}>{t('profile.logout')}</Text>
+              <Text style={themedStyles.modalEmpty}>{t('profile.logoutConfirm')}</Text>
+              <View style={themedStyles.modalActions}>
+                <TouchableOpacity style={themedStyles.modalCancel} onPress={() => setLogoutVisible(false)}>
+                  <Text style={themedStyles.modalCancelText}>{t('plan.cancel')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={themedStyles.modalSave} onPress={confirmLogout}>
+                  <Text style={themedStyles.modalSaveText}>{t('profile.logout')}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {!!toastMessage && (
+        <View pointerEvents="none" style={themedStyles.toastWrap}>
+          <View style={themedStyles.toastCard}>
+            <Text style={themedStyles.toastText}>{toastMessage}</Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   centerContent: {
     flex: 1,
@@ -637,11 +778,11 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: FontSize.md,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
   },
   errorText: {
     fontSize: FontSize.md,
-    color: Colors.error,
+    color: colors.error,
     marginTop: Spacing.sm,
   },
 
@@ -656,7 +797,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: FontSize.xl,
     fontWeight: FontWeight.bold,
-    color: Colors.text,
+    color: colors.text,
   },
 
   /* ── ScrollView ── */
@@ -669,7 +810,7 @@ const styles = StyleSheet.create({
 
   /* ── Profile Card ── */
   profileCard: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: BorderRadius.xl,
     alignItems: 'center',
     paddingVertical: Spacing.xxl,
@@ -685,25 +826,25 @@ const styles = StyleSheet.create({
     height: 100,
     borderRadius: 50,
     borderWidth: 3,
-    borderColor: Colors.primaryLight,
+    borderColor: colors.primaryLight,
   },
   cameraIconWrap: {
     position: 'absolute',
     bottom: 2,
     right: 2,
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     borderRadius: BorderRadius.full,
     width: 28,
     height: 28,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: Colors.surface,
+    borderColor: colors.surface,
   },
   userName: {
     fontSize: FontSize.xxl,
     fontWeight: FontWeight.bold,
-    color: Colors.text,
+    color: colors.text,
     marginBottom: Spacing.xs,
   },
   taglineRow: {
@@ -714,7 +855,7 @@ const styles = StyleSheet.create({
   },
   taglineText: {
     fontSize: FontSize.sm,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
   },
   actionRow: {
     flexDirection: 'row',
@@ -722,18 +863,18 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   editProfileBtn: {
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     borderRadius: BorderRadius.full,
     paddingHorizontal: Spacing.xxl,
     paddingVertical: Spacing.md,
   },
   editProfileText: {
-    color: Colors.textOnPrimary,
+    color: colors.textOnPrimary,
     fontSize: FontSize.md,
     fontWeight: FontWeight.semibold,
   },
   shareBtn: {
-    backgroundColor: Colors.primaryLight,
+    backgroundColor: colors.primaryLight,
     borderRadius: BorderRadius.full,
     width: 44,
     height: 44,
@@ -754,12 +895,12 @@ const styles = StyleSheet.create({
   statNumber: {
     fontSize: FontSize.xxl,
     fontWeight: FontWeight.bold,
-    color: Colors.primary,
+    color: colors.primary,
   },
   statLabel: {
     fontSize: FontSize.xxs,
     fontWeight: FontWeight.bold,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     letterSpacing: 0.8,
     textTransform: 'uppercase',
     marginTop: Spacing.xs,
@@ -775,12 +916,12 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
-    color: Colors.text,
+    color: colors.text,
   },
   sectionAction: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.semibold,
-    color: Colors.primary,
+    color: colors.primary,
   },
 
   /* ── Modals ── */
@@ -793,31 +934,31 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     width: '100%',
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: BorderRadius.xl,
     padding: Spacing.xl,
   },
   modalCardLarge: {
     width: '100%',
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: BorderRadius.xl,
     padding: Spacing.xl,
   },
   modalTitle: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
-    color: Colors.text,
+    color: colors.text,
     marginBottom: Spacing.md,
   },
   modalInput: {
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     borderRadius: BorderRadius.lg,
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
     fontSize: FontSize.md,
     marginBottom: Spacing.sm,
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
   },
   modalActions: {
     flexDirection: 'row',
@@ -829,11 +970,11 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
     paddingVertical: Spacing.md,
     marginRight: Spacing.sm,
-    backgroundColor: Colors.tag.bg,
+    backgroundColor: colors.tag.bg,
     alignItems: 'center',
   },
   modalCancelText: {
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontWeight: FontWeight.semibold,
   },
   modalSave: {
@@ -841,35 +982,35 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
     paddingVertical: Spacing.md,
     marginLeft: Spacing.sm,
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     alignItems: 'center',
   },
   modalSaveText: {
-    color: Colors.textOnPrimary,
+    color: colors.textOnPrimary,
     fontWeight: FontWeight.semibold,
   },
   modalEmpty: {
     textAlign: 'center',
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginVertical: Spacing.md,
   },
   alertListItem: {
     paddingVertical: Spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.divider,
+    borderBottomColor: colors.divider,
   },
   deleteInline: {
     marginTop: Spacing.xs,
     alignSelf: 'flex-start',
   },
   deleteInlineText: {
-    color: Colors.error,
+    color: colors.error,
     fontWeight: FontWeight.semibold,
   },
 
   /* ── Alert Card ── */
   alertCard: {
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderRadius: BorderRadius.xl,
     flexDirection: 'row',
     alignItems: 'center',
@@ -877,7 +1018,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.lg,
   },
   alertIconWrap: {
-    backgroundColor: Colors.primaryLight,
+    backgroundColor: colors.primaryLight,
     borderRadius: BorderRadius.full,
     width: 44,
     height: 44,
@@ -891,11 +1032,11 @@ const styles = StyleSheet.create({
   alertRoute: {
     fontSize: FontSize.md,
     fontWeight: FontWeight.semibold,
-    color: Colors.text,
+    color: colors.text,
   },
   alertTarget: {
     fontSize: FontSize.sm,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginTop: 2,
   },
   alertDropWrap: {
@@ -904,11 +1045,11 @@ const styles = StyleSheet.create({
   alertDropText: {
     fontSize: FontSize.md,
     fontWeight: FontWeight.bold,
-    color: Colors.success,
+    color: colors.success,
   },
   alertTodayText: {
     fontSize: FontSize.xxs,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginTop: 2,
@@ -916,7 +1057,7 @@ const styles = StyleSheet.create({
 
   /* ── Itinerary Card ── */
   itineraryCard: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: BorderRadius.xl,
     overflow: 'hidden',
     marginBottom: Spacing.lg,
@@ -924,13 +1065,13 @@ const styles = StyleSheet.create({
   itineraryImage: {
     width: '100%',
     height: 160,
-    backgroundColor: Colors.tag.bg,
+    backgroundColor: colors.tag.bg,
   },
   itineraryBookmark: {
     position: 'absolute',
     top: Spacing.md,
     right: Spacing.md,
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: BorderRadius.full,
     width: 36,
     height: 36,
@@ -944,17 +1085,17 @@ const styles = StyleSheet.create({
   itineraryTitle: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
-    color: Colors.text,
+    color: colors.text,
   },
   itineraryMeta: {
     fontSize: FontSize.sm,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginTop: Spacing.xs,
   },
 
   /* ── Preferences ── */
   prefRow: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: BorderRadius.lg,
     flexDirection: 'row',
     alignItems: 'center',
@@ -978,7 +1119,7 @@ const styles = StyleSheet.create({
   prefLabel: {
     fontSize: FontSize.md,
     fontWeight: FontWeight.medium,
-    color: Colors.text,
+    color: colors.text,
   },
   prefRight: {
     flexDirection: 'row',
@@ -987,6 +1128,35 @@ const styles = StyleSheet.create({
   },
   prefValue: {
     fontSize: FontSize.md,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
+  },
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.divider,
+  },
+  optionText: {
+    fontSize: FontSize.md,
+    color: colors.text,
+  },
+  toastWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: Spacing.xxl,
+    alignItems: 'center',
+  },
+  toastCard: {
+    backgroundColor: 'rgba(17,24,39,0.95)',
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+  },
+  toastText: {
+    color: colors.textOnPrimary,
+    fontSize: FontSize.sm,
   },
 });

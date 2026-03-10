@@ -189,6 +189,9 @@ const zh: TranslationDict = {
   'profile.darkMode': '深色模式',
   'profile.preferredLanguage': '首选语言',
   'profile.defaultCurrency': '默认货币',
+  'profile.saveItinerary': '保存行程',
+  'profile.savedToast': '已保存到我的行程',
+  'profile.saveFail': '保存失败，请重试',
 
   // ── Watchlist 页 (watchlist.tsx) ──
   'radar.scanning': '正在扫描',
@@ -376,6 +379,9 @@ const en: TranslationDict = {
   'profile.darkMode': 'Dark Mode',
   'profile.preferredLanguage': 'Preferred Language',
   'profile.defaultCurrency': 'Default Currency',
+  'profile.saveItinerary': 'Save itinerary',
+  'profile.savedToast': 'Saved to My Trips',
+  'profile.saveFail': 'Save failed. Please retry',
 
   // ── Watchlist 页 (watchlist.tsx) ──
   'radar.scanning': 'Scanning',

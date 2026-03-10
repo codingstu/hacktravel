@@ -26,6 +26,7 @@ import {
   Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -47,6 +48,7 @@ import {
   ApiError,
   fetchPlaceDetail,
   fetchRegionMetadata,
+  saveItinerary,
 } from '@/services/api';
 import {
   TRAVEL_TAGS,
@@ -151,6 +153,7 @@ export default function GenerateScreen() {
   const [hours, setHours] = useState('48');
   const [budget, setBudget] = useState('3000');
   const [selectedTags, setSelectedTags] = useState<string[]>(['疯狂暴走']);
+  const [toastMessage, setToastMessage] = useState('');
   const [selectedContinent, setSelectedContinent] = useState<Continent>(DEFAULT_CONTINENT);
   const [selectedSubRegion, setSelectedSubRegion] = useState<string>('');
   const [regionMeta, setRegionMeta] = useState<RegionMeta[]>(REGION_METADATA_FALLBACK);
@@ -277,6 +280,12 @@ export default function GenerateScreen() {
 
     bootstrapRegion();
   }, []);
+
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = setTimeout(() => setToastMessage(''), 1500);
+    return () => clearTimeout(timer);
+  }, [toastMessage]);
 
   useEffect(() => {
     setSelectedSubRegion('');
@@ -815,6 +824,39 @@ export default function GenerateScreen() {
               </TouchableOpacity>
             </View>
 
+            {/* 保存行程 */}
+            <TouchableOpacity
+              style={styles.saveBtn}
+              onPress={async () => {
+                if (!result) return;
+                try {
+                  const deviceId = (await AsyncStorage.getItem('device_id')) || '';
+                  if (!deviceId) {
+                    setToastMessage(t('common.error'));
+                    return;
+                  }
+                  const resp = await saveItinerary({
+                    device_id: deviceId,
+                    itinerary_id: result.itinerary_id,
+                    title: result.title || `${origin.trim()} → ${destination.trim()}`,
+                    destination: destination.trim() || 'Trip',
+                    stops: result.legs.length,
+                    days: Math.max(1, Math.round((parseInt(hours, 10) || 48) / 24)),
+                    cover_image: getDestinationImage(destination.trim(), 800, 400),
+                  });
+                  if (resp.success) {
+                    setToastMessage(t('profile.savedToast'));
+                  } else {
+                    setToastMessage(resp.message || t('profile.saveFail'));
+                  }
+                } catch {
+                  setToastMessage(t('profile.saveFail'));
+                }
+              }}>
+              <Ionicons name="bookmark-outline" size={16} color={Colors.primary} />
+              <Text style={styles.saveBtnText}>{t('profile.saveItinerary')}</Text>
+            </TouchableOpacity>
+
             {/* 时间轴 */}
             <View style={styles.timeline}>
               {/* 时区提示（跨时区路线） */}
@@ -1098,7 +1140,14 @@ export default function GenerateScreen() {
         </View>
       </Modal>
 
-    </KeyboardAvoidingView>
+    {!!toastMessage && (
+      <View pointerEvents="none" style={styles.toastWrap}>
+        <View style={styles.toastCard}>
+          <Text style={styles.toastText}>{toastMessage}</Text>
+        </View>
+      </View>
+    )}
+  </KeyboardAvoidingView>
   );
 }
 
@@ -1791,6 +1840,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: Spacing.sm,
     marginBottom: Spacing.lg,
+  },
+  saveBtn: {
+    marginBottom: Spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    height: 48,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: Colors.tagActive.border,
+    backgroundColor: Colors.surface,
+  },
+  saveBtnText: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
+    color: Colors.primary,
+  },
+  toastWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: Spacing.xxl,
+    alignItems: 'center',
+  },
+  toastCard: {
+    backgroundColor: 'rgba(17,24,39,0.95)',
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+  },
+  toastText: {
+    color: Colors.textOnPrimary,
+    fontSize: FontSize.sm,
   },
   actionBtn: {
     flex: 1,

@@ -7,7 +7,9 @@
  * - 全局 rounded-xl(24) 卡片 · rounded-full pill 芯片
  * - 极简投影 + backdrop-blur 顶栏 + 底栏
  */
-export const Colors = {
+export type ThemeMode = 'light' | 'dark';
+
+export const LightColors = {
   // ── 主色 ── 对齐 Stitch #2e5c49
   primary: '#2e5c49',
   primaryLight: '#E8F0EC',
@@ -77,6 +79,63 @@ export const Colors = {
     warmEnd: '#e2e8f0',
   },
 };
+
+export const DarkColors: typeof LightColors = {
+  ...LightColors,
+  background: '#0b1220',
+  surface: '#111827',
+  surfaceElevated: '#1f2937',
+  text: '#f8fafc',
+  textSecondary: '#cbd5e1',
+  textLight: '#94a3b8',
+  textOnDark: '#e2e8f0',
+  border: '#ffffff1a',
+  divider: '#ffffff0f',
+  primaryLight: '#1b2f27',
+  tag: {
+    bg: '#1f2937',
+    text: '#cbd5e1',
+    border: '#334155',
+  },
+  tagActive: {
+    bg: '#2e5c4930',
+    text: '#b9e3cf',
+    border: '#2e5c4960',
+  },
+  status: {
+    progressBg: '#3b2f1b',
+    progressText: '#fdba74',
+    liveBg: '#2e5c4930',
+    liveText: '#b9e3cf',
+  },
+  tab: {
+    active: '#b9e3cf',
+    inactive: '#94a3b8',
+    bg: '#0b1220f0',
+    border: '#ffffff0f',
+  },
+  gradient: {
+    heroStart: '#1f3f33',
+    heroEnd: '#0f1f19',
+    ctaStart: '#1f3f33',
+    ctaEnd: '#0f1f19',
+    warmStart: '#0b1220',
+    warmEnd: '#111827',
+  },
+};
+
+export type ThemeColors = typeof LightColors;
+
+export const Colors: ThemeColors = { ...LightColors };
+
+export function getThemeColors(mode: ThemeMode): ThemeColors {
+  return mode === 'dark' ? DarkColors : LightColors;
+}
+
+export function applyThemeColors(mode: ThemeMode) {
+  Object.assign(Colors, getThemeColors(mode));
+  return Colors;
+}
 
 export const Spacing = {
   xs: 4,

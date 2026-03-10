@@ -2,11 +2,11 @@ import { DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
-import { Colors } from '@/constants/Theme';
+import { ThemeModeProvider, useThemeMode } from '@/services/theme';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -16,19 +16,8 @@ export const unstable_settings = {
 
 SplashScreen.preventAutoHideAsync();
 
-const HackTravelTheme = {
-  ...DefaultTheme,
-  colors: {
-    ...DefaultTheme.colors,
-    primary: Colors.primary,
-    background: Colors.background,
-    card: Colors.surface,
-    text: Colors.text,
-    border: Colors.divider,
-  },
-};
-
-export default function RootLayout() {
+function RootLayoutInner() {
+  const { mode, colors } = useThemeMode();
   const [loaded, error] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
@@ -43,13 +32,25 @@ export default function RootLayout() {
     }
   }, [loaded]);
 
+  const hackTravelTheme = useMemo(() => ({
+    ...DefaultTheme,
+    colors: {
+      ...DefaultTheme.colors,
+      primary: colors.primary,
+      background: colors.background,
+      card: colors.surface,
+      text: colors.text,
+      border: colors.divider,
+    },
+  }), [colors]);
+
   if (!loaded) {
     return null;
   }
 
   return (
-    <ThemeProvider value={HackTravelTheme}>
-      <StatusBar style="dark" />
+    <ThemeProvider value={hackTravelTheme}>
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
@@ -58,5 +59,13 @@ export default function RootLayout() {
         />
       </Stack>
     </ThemeProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <ThemeModeProvider>
+      <RootLayoutInner />
+    </ThemeModeProvider>
   );
 }

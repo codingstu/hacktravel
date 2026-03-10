@@ -24,6 +24,7 @@ import {
   Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -40,6 +41,7 @@ import {
   fetchCommunityRouteDetail,
   copyRoute,
   fetchPlaceDetail,
+  saveItinerary,
 } from '@/services/api';
 import type { CommunityRoute, CommunityRouteCard, ItineraryLeg, PlaceDetailResponse } from '@/services/types';
 import { formatMoney, formatMoneyWithCode, getTimezoneLabel } from '@/utils/format';
@@ -80,6 +82,13 @@ export default function CommunityScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [dataSource, setDataSource] = useState<DataSource>('preset');
   const [copyingId, setCopyingId] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState('');
+
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = setTimeout(() => setToastMessage(''), 2000);
+    return () => clearTimeout(timer);
+  }, [toastMessage]);
 
   // ── Tab & Filter state ──
   const [selectedCategory, setSelectedCategory] = useState<CategoryTab>('hot');
@@ -253,9 +262,36 @@ export default function CommunityScreen() {
         }
       }
     } catch {
-      Alert.alert(t('guides.copySuccess'), t('guides.copySuccess'));
+      Alert.alert(t('guides.copyFail'), t('guides.copyFail'));
     } finally {
       setCopyingId(null);
+    }
+  }, []);
+
+  const handleSaveRoute = useCallback(async (route: CommunityRoute | CommunityRouteCard) => {
+    try {
+      const deviceId = (await AsyncStorage.getItem('device_id')) || '';
+      if (!deviceId) {
+        setToastMessage(t('common.error'));
+        return;
+      }
+      const stops = 'legs' in route && Array.isArray(route.legs) ? route.legs.length : 0;
+      const resp = await saveItinerary({
+        device_id: deviceId,
+        itinerary_id: route.id,
+        title: route.title,
+        destination: route.destination,
+        stops,
+        days: Math.max(1, Math.round(route.total_hours / 24)),
+        cover_image: route.cover_image || getDestinationImage(route.destination, 800, 400),
+      });
+      if (resp.success) {
+        setToastMessage(t('profile.savedToast'));
+      } else {
+        setToastMessage(resp.message || t('profile.saveFail'));
+      }
+    } catch {
+      setToastMessage(t('profile.saveFail'));
     }
   }, []);
 
@@ -269,219 +305,230 @@ export default function CommunityScreen() {
   }
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.scroll}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => loadRoutes(true)}
-          tintColor={Colors.primary}
-        />
-      }>
-      {/* 头部 — Stitch 粘性标题栏 + 分类 Tabs */}
-      <View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
-        <View style={styles.headerRow}>
-          <Text style={styles.headerTitle}>{t('guides.title')}</Text>
-          {dataSource === 'api' && (
-            <View style={styles.liveIndicator}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>{t('guides.live')} · {routes.length}</Text>
-            </View>
-          )}
+    <View style={{ flex: 1 }}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => loadRoutes(true)}
+            tintColor={Colors.primary}
+          />
+        }>
+        {/* 头部 — Stitch 粘性标题栏 + 分类 Tabs */}
+        <View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
+          <View style={styles.headerRow}>
+            <Text style={styles.headerTitle}>{t('guides.title')}</Text>
+            {dataSource === 'api' && (
+              <View style={styles.liveIndicator}>
+                <View style={styles.liveDot} />
+                <Text style={styles.liveText}>{t('guides.live')} · {routes.length}</Text>
+              </View>
+            )}
+          </View>
+          {/* Category Tabs */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.catTabRow}>
+            {([
+              { key: 'verified' as CategoryTab, label: t('guides.verified') },
+              { key: 'hot' as CategoryTab, label: t('guides.hot') },
+              { key: 'bestSellers' as CategoryTab, label: t('guides.bestSellers') },
+              { key: 'budget' as CategoryTab, label: t('guides.budget') },
+            ]).map((tab) => (
+              <TouchableOpacity
+                key={tab.key}
+                style={styles.catTab}
+                activeOpacity={0.7}
+                onPress={() => setSelectedCategory(tab.key)}>
+                <Text style={[styles.catTabText, selectedCategory === tab.key && styles.catTabTextActive]}>
+                  {tab.label}
+                </Text>
+                {selectedCategory === tab.key && <View style={styles.catTabBar} />}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </View>
-        {/* Category Tabs */}
+
+        {/* Quick Filter Tags */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.catTabRow}>
+          contentContainerStyle={styles.filterRow}>
           {([
-            { key: 'verified' as CategoryTab, label: t('guides.verified') },
-            { key: 'hot' as CategoryTab, label: t('guides.hot') },
-            { key: 'bestSellers' as CategoryTab, label: t('guides.bestSellers') },
-            { key: 'budget' as CategoryTab, label: t('guides.budget') },
-          ]).map((tab) => (
-            <TouchableOpacity
-              key={tab.key}
-              style={styles.catTab}
-              activeOpacity={0.7}
-              onPress={() => setSelectedCategory(tab.key)}>
-              <Text style={[styles.catTabText, selectedCategory === tab.key && styles.catTabTextActive]}>
-                {tab.label}
-              </Text>
-              {selectedCategory === tab.key && <View style={styles.catTabBar} />}
-            </TouchableOpacity>
-          ))}
+            { key: 'budget' as FilterTag, icon: 'cash-outline', label: t('guides.filterBudget') },
+            { key: 'foodie' as FilterTag, icon: 'restaurant-outline', label: t('guides.filterFoodie') },
+            { key: 'hiking' as FilterTag, icon: 'walk-outline', label: t('guides.filterHiking') },
+            { key: 'photo' as FilterTag, icon: 'camera-outline', label: t('guides.filterPhoto') },
+          ]).map((f) => {
+            const isActive = selectedFilter === f.key;
+            return (
+              <TouchableOpacity
+                key={f.key}
+                style={[styles.filterChip, isActive && styles.filterChipActive]}
+                activeOpacity={0.7}
+                onPress={() => setSelectedFilter(prev => prev === f.key ? null : f.key)}>
+                <Ionicons name={f.icon as any} size={14} color={isActive ? Colors.primary : Colors.textSecondary} />
+                <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>{f.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
-      </View>
 
-      {/* Quick Filter Tags */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterRow}>
-        {([
-          { key: 'budget' as FilterTag, icon: 'cash-outline', label: t('guides.filterBudget') },
-          { key: 'foodie' as FilterTag, icon: 'restaurant-outline', label: t('guides.filterFoodie') },
-          { key: 'hiking' as FilterTag, icon: 'walk-outline', label: t('guides.filterHiking') },
-          { key: 'photo' as FilterTag, icon: 'camera-outline', label: t('guides.filterPhoto') },
-        ]).map((f) => {
-          const isActive = selectedFilter === f.key;
-          return (
-            <TouchableOpacity
-              key={f.key}
-              style={[styles.filterChip, isActive && styles.filterChipActive]}
-              activeOpacity={0.7}
-              onPress={() => setSelectedFilter(prev => prev === f.key ? null : f.key)}>
-              <Ionicons name={f.icon as any} size={14} color={isActive ? Colors.primary : Colors.textSecondary} />
-              <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>{f.label}</Text>
+        {/* 路线卡片 */}
+        {displayRoutes.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="search-outline" size={36} color={Colors.textLight} />
+            <Text style={styles.emptyText}>{t('guides.noResults')}</Text>
+            <TouchableOpacity onPress={() => { setSelectedFilter(null); setSelectedCategory('hot'); }}>
+              <Text style={styles.emptyReset}>{t('guides.resetFilter')}</Text>
             </TouchableOpacity>
-          );
-        })}
+          </View>
+        ) : (
+          displayRoutes.map(route => (
+            <RouteCard
+              key={route.id}
+              route={route}
+              expanded={expandedId === route.id}
+              detail={expandedId === route.id ? expandedRouteDetail : null}
+              copying={copyingId === route.id}
+              onToggle={() => toggleExpand(route.id)}
+              onCopy={() => handleCopy(route.id)}
+              onSave={handleSaveRoute}
+              onPressPlace={handlePressPlace}
+            />
+          ))
+        )}
+
+        {/* 底部说明 */}
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>
+            {t('guides.dataFromPreset')}
+          </Text>
+        </View>
+
+        {/* ── 地点详情 Modal ── */}
+        <Modal
+          visible={placeModalVisible}
+          animationType="slide"
+          transparent
+          onRequestClose={() => setPlaceModalVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <TouchableOpacity
+                style={styles.modalClose}
+                onPress={() => setPlaceModalVisible(false)}>
+                <Ionicons name="close" size={24} color={Colors.text} />
+              </TouchableOpacity>
+
+              {placeDetailLoading ? (
+                <View style={styles.modalLoading}>
+                  <ActivityIndicator size="large" color={Colors.primary} />
+                  <Text style={styles.modalLoadingText}>{t('guides.placeDetailLoading')}</Text>
+                </View>
+              ) : selectedLeg && (
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  {placeDetail?.image_url && (
+                    <Image
+                      source={{ uri: placeDetail.image_url }}
+                      style={styles.modalImage}
+                      resizeMode="cover"
+                    />
+                  )}
+                  <View style={styles.modalHeader}>
+                    <View style={[
+                      styles.modalIconBg,
+                      { backgroundColor: (ACTIVITY_ICON_MAP[selectedLeg.activity_type] || { color: Colors.primary }).color },
+                    ]}>
+                      <Ionicons
+                        name={(ACTIVITY_ICON_MAP[selectedLeg.activity_type] || { name: 'location' }).name as any}
+                        size={20}
+                        color="#fff"
+                      />
+                    </View>
+                    <View style={styles.modalTitleArea}>
+                      <Text style={styles.modalTitle}>{selectedLeg.place.name}</Text>
+                      <Text style={styles.modalSubtitle}>
+                        {selectedLeg.start_time_local.slice(11, 16)} – {selectedLeg.end_time_local.slice(11, 16)}
+                        {' · '}{formatMoney(selectedLeg.estimated_cost, true)}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {selectedLeg.transport && (
+                    <View style={styles.modalInfoRow}>
+                      <Ionicons name="car-outline" size={16} color={Colors.textSecondary} />
+                      <Text style={styles.modalInfoText}>
+                        {selectedLeg.transport.mode}
+                        {selectedLeg.transport.reference ? ` · ${selectedLeg.transport.reference}` : ''}
+                      </Text>
+                    </View>
+                  )}
+
+                  {placeDetail?.description ? (
+                    <View style={styles.modalSection}>
+                      <Text style={styles.modalSectionTitle}>Description</Text>
+                      <Text style={styles.modalDesc}>{placeDetail.description}</Text>
+                    </View>
+                  ) : null}
+
+                  {selectedLeg.tips && selectedLeg.tips.length > 0 && (
+                    <View style={styles.modalSection}>
+                      <Text style={styles.modalSectionTitle}>Travel Tips</Text>
+                      {selectedLeg.tips.map((tip, i) => (
+                        <View key={i} style={styles.modalTipRow}>
+                          <Ionicons name="chatbubble-ellipses-outline" size={14} color={Colors.primary} />
+                          <Text style={styles.modalTipText}>{tip}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  {selectedLeg.place.latitude != null && selectedLeg.place.longitude != null && (
+                    <View style={styles.modalInfoRow}>
+                      <Ionicons name="location-outline" size={16} color={Colors.textSecondary} />
+                      <Text style={styles.modalInfoText}>
+                        {selectedLeg.place.latitude.toFixed(4)}, {selectedLeg.place.longitude.toFixed(4)}
+                      </Text>
+                    </View>
+                  )}
+
+                  <View style={styles.modalActions}>
+                    {placeDetail?.map_url && (
+                      <TouchableOpacity
+                        style={styles.modalActionBtn}
+                        onPress={() => Linking.openURL(placeDetail.map_url!)}>
+                        <Ionicons name="navigate" size={16} color="#fff" />
+                        <Text style={styles.modalActionText}>Google Maps</Text>
+                      </TouchableOpacity>
+                    )}
+                    {placeDetail?.wiki_url && (
+                      <TouchableOpacity
+                        style={styles.modalActionBtnSecondary}
+                        onPress={() => Linking.openURL(placeDetail.wiki_url!)}>
+                        <Ionicons name="book-outline" size={16} color={Colors.primary} />
+                        <Text style={styles.modalActionTextSecondary}>Wikipedia</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </ScrollView>
+              )}
+            </View>
+          </View>
+        </Modal>
       </ScrollView>
 
-      {/* 路线卡片 */}
-      {displayRoutes.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Ionicons name="search-outline" size={36} color={Colors.textLight} />
-          <Text style={styles.emptyText}>{t('guides.noResults')}</Text>
-          <TouchableOpacity onPress={() => { setSelectedFilter(null); setSelectedCategory('hot'); }}>
-            <Text style={styles.emptyReset}>{t('guides.resetFilter')}</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        displayRoutes.map(route => (
-        <RouteCard
-          key={route.id}
-          route={route}
-          expanded={expandedId === route.id}
-          detail={expandedId === route.id ? expandedRouteDetail : null}
-          copying={copyingId === route.id}
-          onToggle={() => toggleExpand(route.id)}
-          onCopy={() => handleCopy(route.id)}
-          onPressPlace={handlePressPlace}
-        />
-      ))
-      )}
-
-      {/* 底部说明 */}
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>
-          {t('guides.dataFromPreset')}
-        </Text>
-      </View>
-
-      {/* ── 地点详情 Modal ── */}
-      <Modal
-        visible={placeModalVisible}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setPlaceModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <TouchableOpacity
-              style={styles.modalClose}
-              onPress={() => setPlaceModalVisible(false)}>
-              <Ionicons name="close" size={24} color={Colors.text} />
-            </TouchableOpacity>
-
-            {placeDetailLoading ? (
-              <View style={styles.modalLoading}>
-                <ActivityIndicator size="large" color={Colors.primary} />
-                <Text style={styles.modalLoadingText}>{t('guides.placeDetailLoading')}</Text>
-              </View>
-            ) : selectedLeg && (
-              <ScrollView showsVerticalScrollIndicator={false}>
-                {placeDetail?.image_url && (
-                  <Image
-                    source={{ uri: placeDetail.image_url }}
-                    style={styles.modalImage}
-                    resizeMode="cover"
-                  />
-                )}
-                <View style={styles.modalHeader}>
-                  <View style={[
-                    styles.modalIconBg,
-                    { backgroundColor: (ACTIVITY_ICON_MAP[selectedLeg.activity_type] || { color: Colors.primary }).color },
-                  ]}>
-                    <Ionicons
-                      name={(ACTIVITY_ICON_MAP[selectedLeg.activity_type] || { name: 'location' }).name as any}
-                      size={20}
-                      color="#fff"
-                    />
-                  </View>
-                  <View style={styles.modalTitleArea}>
-                    <Text style={styles.modalTitle}>{selectedLeg.place.name}</Text>
-                    <Text style={styles.modalSubtitle}>
-                      {selectedLeg.start_time_local.slice(11, 16)} – {selectedLeg.end_time_local.slice(11, 16)}
-                      {' · '}{formatMoney(selectedLeg.estimated_cost, true)}
-                    </Text>
-                  </View>
-                </View>
-
-                {selectedLeg.transport && (
-                  <View style={styles.modalInfoRow}>
-                    <Ionicons name="car-outline" size={16} color={Colors.textSecondary} />
-                    <Text style={styles.modalInfoText}>
-                      {selectedLeg.transport.mode}
-                      {selectedLeg.transport.reference ? ` · ${selectedLeg.transport.reference}` : ''}
-                    </Text>
-                  </View>
-                )}
-
-                {placeDetail?.description ? (
-                  <View style={styles.modalSection}>
-                    <Text style={styles.modalSectionTitle}>Description</Text>
-                    <Text style={styles.modalDesc}>{placeDetail.description}</Text>
-                  </View>
-                ) : null}
-
-                {selectedLeg.tips && selectedLeg.tips.length > 0 && (
-                  <View style={styles.modalSection}>
-                    <Text style={styles.modalSectionTitle}>Travel Tips</Text>
-                    {selectedLeg.tips.map((tip, i) => (
-                      <View key={i} style={styles.modalTipRow}>
-                        <Ionicons name="chatbubble-ellipses-outline" size={14} color={Colors.primary} />
-                        <Text style={styles.modalTipText}>{tip}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-
-                {selectedLeg.place.latitude != null && selectedLeg.place.longitude != null && (
-                  <View style={styles.modalInfoRow}>
-                    <Ionicons name="location-outline" size={16} color={Colors.textSecondary} />
-                    <Text style={styles.modalInfoText}>
-                      {selectedLeg.place.latitude.toFixed(4)}, {selectedLeg.place.longitude.toFixed(4)}
-                    </Text>
-                  </View>
-                )}
-
-                <View style={styles.modalActions}>
-                  {placeDetail?.map_url && (
-                    <TouchableOpacity
-                      style={styles.modalActionBtn}
-                      onPress={() => Linking.openURL(placeDetail.map_url!)}>
-                      <Ionicons name="navigate" size={16} color="#fff" />
-                      <Text style={styles.modalActionText}>Google Maps</Text>
-                    </TouchableOpacity>
-                  )}
-                  {placeDetail?.wiki_url && (
-                    <TouchableOpacity
-                      style={styles.modalActionBtnSecondary}
-                      onPress={() => Linking.openURL(placeDetail.wiki_url!)}>
-                      <Ionicons name="book-outline" size={16} color={Colors.primary} />
-                      <Text style={styles.modalActionTextSecondary}>Wikipedia</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </ScrollView>
-            )}
+      {!!toastMessage && (
+        <View pointerEvents="none" style={styles.toastWrap}>
+          <View style={styles.toastCard}>
+            <Text style={styles.toastText}>{toastMessage}</Text>
           </View>
         </View>
-      </Modal>
-    </ScrollView>
+      )}
+    </View>
   );
 }
 
@@ -492,6 +539,7 @@ function RouteCard({
   copying,
   onToggle,
   onCopy,
+  onSave,
   onPressPlace,
 }: {
   route: CommunityRouteCard;
@@ -500,6 +548,7 @@ function RouteCard({
   copying: boolean;
   onToggle: () => void;
   onCopy: () => void;
+  onSave: (route: CommunityRoute | CommunityRouteCard) => void;
   onPressPlace: (leg: ItineraryLeg) => void;
 }) {
   const [imgError, setImgError] = useState(false);
@@ -608,6 +657,14 @@ function RouteCard({
                         <Text style={styles.copyBtnText}>{t('guides.copyItinerary')}</Text>
                       </>
                     )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.saveBtn}
+                    activeOpacity={0.85}
+                    onPress={() => detail && onSave(detail)}
+                    disabled={!detail}>
+                    <Ionicons name="bookmark-outline" size={15} color={Colors.primary} />
+                    <Text style={styles.saveBtnText}>{t('profile.saveItinerary')}</Text>
                   </TouchableOpacity>
                   {detail.map?.google_maps_deeplink ? (
                     <TouchableOpacity
@@ -986,6 +1043,23 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.bold,
     fontSize: FontSize.sm,
   },
+  saveBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surfaceElevated,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: Colors.tagActive.border,
+    gap: Spacing.xs,
+  },
+  saveBtnText: {
+    color: Colors.primary,
+    fontWeight: FontWeight.bold,
+    fontSize: FontSize.sm,
+  },
   navBtn: {
     flex: 1,
     flexDirection: 'row',
@@ -1197,5 +1271,25 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     fontWeight: FontWeight.semibold,
     color: Colors.primary,
+  },
+
+  toastWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: Spacing.xxl,
+    alignItems: 'center',
+  },
+  toastCard: {
+    backgroundColor: Colors.text,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    ...Shadow.sm,
+  },
+  toastText: {
+    color: '#fff',
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.medium,
   },
 });

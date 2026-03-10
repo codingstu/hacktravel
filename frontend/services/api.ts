@@ -29,11 +29,15 @@ import {
   DeleteItineraryResponse,
 } from './types';
 
-// 开发环境下 Android 模拟器用 10.0.2.2，iOS/Web 用 localhost
+// 开发环境下 Android 模拟器用 10.0.2.2，iOS 用 localhost，Web 用当前 Host
 const getBaseUrl = (): string => {
   if (__DEV__) {
     if (Platform.OS === 'android') {
       return 'http://10.0.2.2:8001';
+    }
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const host = window.location.hostname;
+      return `http://${host}:8001`;
     }
     return 'http://localhost:8001';
   }
