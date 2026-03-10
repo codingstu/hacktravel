@@ -1,6 +1,6 @@
 /**
  * Tab 导航布局 — 对齐 Stitch 设计稿
- * 底部 3 Tab：Plan / Guides / Radar
+ * 底部 4 Tab：Plan / Guides / Radar / Profile
  * 半透明毛玻璃底栏 + primary/10 色圈
  */
 import React from 'react';
@@ -73,6 +73,21 @@ export default function TabLayout() {
             <View style={focused ? styles.activeIconWrap : undefined}>
               <Ionicons
                 name={focused ? 'radio' : 'radio-outline'}
+                size={22}
+                color={color}
+              />
+            </View>
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ color, focused }) => (
+            <View style={focused ? styles.activeIconWrap : undefined}>
+              <Ionicons
+                name={focused ? 'person' : 'person-outline'}
                 size={22}
                 color={color}
               />
