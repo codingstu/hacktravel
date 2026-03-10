@@ -53,6 +53,7 @@ async def update_profile(body: UserProfileUpdateRequest) -> UserProfileResponse:
         name=body.name,
         tagline=body.tagline,
         avatar_url=body.avatar_url,
+        email=body.email,
         countries_visited=body.countries_visited,
     )
     return UserProfileResponse(

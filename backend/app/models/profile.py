@@ -18,12 +18,23 @@ class UserProfile(BaseModel):
     name: str = Field(default="Traveler", max_length=100, description="用户昵称")
     tagline: str = Field(default="Travel Enthusiast", max_length=200, description="个人标签")
     avatar_url: Optional[str] = Field(default=None, description="头像 URL")
+    email: Optional[str] = Field(default=None, description="邮箱")
     countries_visited: int = Field(default=0, ge=0, description="到访国家数")
 
     @field_validator("device_id", "name")
     @classmethod
     def strip_whitespace(cls, v: str) -> str:
         return v.strip()
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == "":
+            return None
+        v = v.strip().lower()
+        if "@" not in v or "." not in v.split("@")[-1]:
+            raise ValueError("邮箱格式不正确")
+        return v
 
 
 class UserProfileUpdateRequest(BaseModel):
@@ -32,12 +43,23 @@ class UserProfileUpdateRequest(BaseModel):
     name: Optional[str] = Field(default=None, max_length=100)
     tagline: Optional[str] = Field(default=None, max_length=200)
     avatar_url: Optional[str] = Field(default=None)
+    email: Optional[str] = Field(default=None)
     countries_visited: Optional[int] = Field(default=None, ge=0)
 
     @field_validator("device_id")
     @classmethod
     def strip_whitespace(cls, v: str) -> str:
         return v.strip()
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == "":
+            return None
+        v = v.strip().lower()
+        if "@" not in v or "." not in v.split("@")[-1]:
+            raise ValueError("邮箱格式不正确")
+        return v
 
 
 class UserProfileResponse(BaseModel):

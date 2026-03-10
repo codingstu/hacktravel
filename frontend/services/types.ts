@@ -252,6 +252,7 @@ export interface UserProfile {
   name: string;
   tagline: string;
   avatar_url: string | null;
+  email: string | null;
   countries_visited: number;
 }
 
@@ -267,6 +268,7 @@ export interface UserProfileUpdateRequest {
   name?: string;
   tagline?: string;
   avatar_url?: string;
+  email?: string;
   countries_visited?: number;
 }
 

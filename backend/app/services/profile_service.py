@@ -62,6 +62,7 @@ class ProfileService:
         data = await self.redis.hgetall(key)
         if data:
             data["device_id"] = device_id
+            data["email"] = data.get("email", "")
             data["countries_visited"] = int(data.get("countries_visited", 0))
             return data, False
 
@@ -71,6 +72,7 @@ class ProfileService:
             "name": "Traveler",
             "tagline": "Travel Enthusiast",
             "avatar_url": "",
+            "email": "",
             "countries_visited": "0",
         }
         await self.redis.hset(key, mapping=default)
@@ -100,6 +102,7 @@ class ProfileService:
         name: Optional[str] = None,
         tagline: Optional[str] = None,
         avatar_url: Optional[str] = None,
+        email: Optional[str] = None,
         countries_visited: Optional[int] = None,
     ) -> dict:
         """Update user profile fields."""
@@ -118,6 +121,8 @@ class ProfileService:
             updates["tagline"] = tagline
         if avatar_url is not None:
             updates["avatar_url"] = avatar_url
+        if email is not None:
+            updates["email"] = email
         if countries_visited is not None:
             updates["countries_visited"] = str(countries_visited)
 
@@ -127,6 +132,7 @@ class ProfileService:
 
         data = await self.redis.hgetall(key)
         data["device_id"] = device_id
+        data["email"] = data.get("email", "")
         data["countries_visited"] = int(data.get("countries_visited", 0))
         return data
 

@@ -11,7 +11,7 @@
  *
  * 对接真实后端 API，使用 device_id 作为匿名用户标识。
  */
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,9 @@ import {
   Alert,
   Platform,
   RefreshControl,
+  TextInput,
+  Modal,
+  Share,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -44,12 +47,15 @@ import {
   updatePreferences,
   fetchSavedItineraries,
   deleteSavedItinerary,
+  updateProfile,
+  fetchPriceAlerts,
 } from '@/services/api';
 import type {
   UserProfile,
   UserStats,
   UserPreferences,
   SavedItinerary,
+  PriceAlertItem,
 } from '@/services/types';
 
 /* ── 偏好设置选项 ── */
@@ -73,6 +79,7 @@ const getDeviceId = async () => {
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
+  const scrollRef = useRef<ScrollView>(null);
 
   const [viewState, setViewState] = useState<ViewState>('loading');
   const [refreshing, setRefreshing] = useState(false);
@@ -83,6 +90,16 @@ export default function ProfileScreen() {
   const [stats, setStats] = useState<UserStats | null>(null);
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
   const [itineraries, setItineraries] = useState<SavedItinerary[]>([]);
+  const [alerts, setAlerts] = useState<PriceAlertItem[]>([]);
+  const [alertsVisible, setAlertsVisible] = useState(false);
+  const [manageVisible, setManageVisible] = useState(false);
+
+  // ── 编辑资料状态 ──
+  const [editVisible, setEditVisible] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editTagline, setEditTagline] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editCountries, setEditCountries] = useState('0');
 
   const loadData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -104,6 +121,12 @@ export default function ProfileScreen() {
       setPreferences(prefsRes.preferences);
       setItineraries(itinsRes.itineraries);
 
+      // 初始化编辑数据
+      setEditName(profileRes.profile.name || '');
+      setEditTagline(profileRes.profile.tagline || '');
+      setEditEmail(profileRes.profile.email || '');
+      setEditCountries(String(profileRes.profile.countries_visited || 0));
+
       // 同步语言设置
       if (prefsRes.preferences.language === 'zh' || prefsRes.preferences.language === 'en') {
         setLocale(prefsRes.preferences.language as 'zh' | 'en');
@@ -124,30 +147,85 @@ export default function ProfileScreen() {
 
   // ── 事件处理 ──
   const handleEditProfile = useCallback(() => {
-    Alert.alert(t('profile.editProfile'), t('profile.editProfileHint'));
+    setEditVisible(true);
   }, []);
 
-  const handleShare = useCallback(() => {
-    Alert.alert(t('profile.share'), t('profile.shareHint'));
-  }, []);
+  const handleSaveProfile = useCallback(async () => {
+    if (!deviceId) return;
+    try {
+      const res = await updateProfile({
+        device_id: deviceId,
+        name: editName.trim(),
+        tagline: editTagline.trim(),
+        email: editEmail.trim(),
+        countries_visited: Math.max(0, Number(editCountries) || 0),
+      });
+      setProfile(res.profile);
+      setEditVisible(false);
+    } catch (e) {
+      Alert.alert(t('common.error'));
+    }
+  }, [deviceId, editName, editTagline, editEmail, editCountries]);
+
+  const handleShare = useCallback(async () => {
+    const shareText = `${profile?.name || 'Traveler'} · HackTravel Profile`;
+    const shareUrl = typeof window !== 'undefined' ? window.location.href : undefined;
+    try {
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl || shareText);
+        Alert.alert(t('profile.share'), t('profile.shareCopied'));
+        return;
+      }
+      await Share.share({ message: shareText, url: shareUrl });
+    } catch {
+      Alert.alert(t('common.error'));
+    }
+  }, [profile]);
 
   const handleSettings = useCallback(() => {
-    Alert.alert(t('profile.settings'), t('profile.settingsHint'));
+    // 滚动到偏好区块
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({ y: 900, animated: true });
+    }
   }, []);
 
   const handleLogout = useCallback(() => {
     Alert.alert(t('profile.logout'), t('profile.logoutConfirm'), [
       { text: t('plan.cancel'), style: 'cancel' },
-      { text: t('profile.logout'), style: 'destructive', onPress: () => {} },
+      {
+        text: t('profile.logout'),
+        style: 'destructive',
+        onPress: async () => {
+          await AsyncStorage.removeItem('device_id');
+          setDeviceId('');
+          setProfile(null);
+          setStats(null);
+          setPreferences(null);
+          setItineraries([]);
+          setAlerts([]);
+          await loadData();
+        },
+      },
     ]);
-  }, []);
+  }, [loadData]);
 
-  const handleViewAllAlerts = useCallback(() => {
-    Alert.alert(t('profile.viewAll'), t('profile.viewAllHint'));
-  }, []);
+  const handleViewAllAlerts = useCallback(async () => {
+    if (!deviceId) return;
+    if (!profile?.email) {
+      Alert.alert(t('common.error'), t('profile.setEmailHint'));
+      return;
+    }
+    try {
+      const res = await fetchPriceAlerts(profile.email);
+      setAlerts(res.alerts);
+      setAlertsVisible(true);
+    } catch {
+      Alert.alert(t('common.error'));
+    }
+  }, [deviceId, profile]);
 
   const handleManageItineraries = useCallback(() => {
-    Alert.alert(t('profile.manage'), t('profile.manageHint'));
+    setManageVisible(true);
   }, []);
 
   const handleLanguageSelect = useCallback(() => {
@@ -205,7 +283,7 @@ export default function ProfileScreen() {
   }, [deviceId]);
 
   const handleDeleteItinerary = useCallback((id: string) => {
-    Alert.alert(t('common.delete'), t('profile.logoutConfirm'), [ // Reuse confirm text or add new
+    Alert.alert(t('common.delete'), t('profile.deleteConfirm'), [
       { text: t('plan.cancel'), style: 'cancel' },
       {
         text: t('common.delete'),
@@ -259,11 +337,14 @@ export default function ProfileScreen() {
       </View>
 
       <ScrollView
+        ref={scrollRef}
         style={styles.scrollView}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => loadData(true)} />
+          Platform.OS === 'web'
+            ? undefined
+            : <RefreshControl refreshing={refreshing} onRefresh={() => loadData(true)} />
         }
       >
         {/* ── 用户头像卡片 ── */}
@@ -317,26 +398,36 @@ export default function ProfileScreen() {
             <Text style={styles.sectionAction}>{t('profile.viewAll')}</Text>
           </TouchableOpacity>
         </View>
-        {/* Placeholder for alerts as they are fetched via email in current API */}
-        <View style={[styles.alertCard, Shadow.sm]}>
-          <View style={styles.alertIconWrap}>
-            <Ionicons name="notifications-outline" size={22} color={Colors.primary} />
+        {alerts.length === 0 ? (
+          <View style={[styles.alertCard, Shadow.sm]}>
+            <View style={styles.alertIconWrap}>
+              <Ionicons name="notifications-outline" size={22} color={Colors.primary} />
+            </View>
+            <View style={styles.alertContent}>
+              <Text style={styles.alertRoute}>{t('profile.noAlerts')}</Text>
+              <Text style={styles.alertTarget}>{t('profile.setEmailHint')}</Text>
+            </View>
           </View>
-          <View style={styles.alertContent}>
-            <Text style={styles.alertRoute}>
-              London {t('profile.to')} Tokyo
-            </Text>
-            <Text style={styles.alertTarget}>
-              {t('profile.targetPrice')}: {t('profile.under')} $850
-            </Text>
-          </View>
-          <View style={styles.alertDropWrap}>
-            <Text style={styles.alertDropText}>
-              -$120 {t('profile.drop')}
-            </Text>
-            <Text style={styles.alertTodayText}>{t('profile.today')}</Text>
-          </View>
-        </View>
+        ) : (
+          alerts.slice(0, 1).map(alert => (
+            <View key={alert.alert_id} style={[styles.alertCard, Shadow.sm]}>
+              <View style={styles.alertIconWrap}>
+                <Ionicons name="notifications-outline" size={22} color={Colors.primary} />
+              </View>
+              <View style={styles.alertContent}>
+                <Text style={styles.alertRoute}>
+                  {alert.origin} {t('profile.to')} {alert.destination}
+                </Text>
+                <Text style={styles.alertTarget}>
+                  {t('profile.targetPrice')}: {t('profile.under')} {alert.max_price}
+                </Text>
+              </View>
+              <View style={styles.alertDropWrap}>
+                <Text style={styles.alertDropText}>{alert.status}</Text>
+              </View>
+            </View>
+          ))
+        )}
 
         {/* ── Saved Itineraries ── */}
         <View style={styles.sectionHeader}>
@@ -347,7 +438,7 @@ export default function ProfileScreen() {
         </View>
         {itineraries.length === 0 ? (
           <Text style={{ color: Colors.textSecondary, textAlign: 'center', marginVertical: Spacing.lg }}>
-            No saved itineraries yet.
+            {t('profile.noItineraries')}
           </Text>
         ) : (
           itineraries.map(itinerary => (
@@ -423,7 +514,112 @@ export default function ProfileScreen() {
             <Ionicons name="chevron-forward" size={18} color={Colors.textLight} />
           </View>
         </TouchableOpacity>
+
       </ScrollView>
+
+      {editVisible && (
+        <Modal transparent visible={editVisible} animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>{t('profile.editProfile')}</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder={t('profile.name')}
+                value={editName}
+                onChangeText={setEditName}
+              />
+              <TextInput
+                style={styles.modalInput}
+                placeholder={t('profile.tagline')}
+                value={editTagline}
+                onChangeText={setEditTagline}
+              />
+              <TextInput
+                style={styles.modalInput}
+                placeholder={t('profile.email')}
+                value={editEmail}
+                onChangeText={setEditEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+              <TextInput
+                style={styles.modalInput}
+                placeholder={t('profile.countriesVisited')}
+                value={editCountries}
+                onChangeText={setEditCountries}
+                keyboardType="numeric"
+              />
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={styles.modalCancel} onPress={() => setEditVisible(false)}>
+                  <Text style={styles.modalCancelText}>{t('plan.cancel')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.modalSave} onPress={handleSaveProfile}>
+                  <Text style={styles.modalSaveText}>{t('common.save')}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {alertsVisible && (
+        <Modal transparent visible={alertsVisible} animationType="slide">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCardLarge}>
+              <Text style={styles.modalTitle}>{t('profile.activePriceAlerts')}</Text>
+              <ScrollView style={{ maxHeight: 360 }}>
+                {alerts.length === 0 ? (
+                  <Text style={styles.modalEmpty}>{t('profile.noAlerts')}</Text>
+                ) : (
+                  alerts.map(alert => (
+                    <View key={alert.alert_id} style={styles.alertListItem}>
+                      <Text style={styles.alertRoute}>{alert.origin} {t('profile.to')} {alert.destination}</Text>
+                      <Text style={styles.alertTarget}>{t('profile.targetPrice')}: {alert.max_price}</Text>
+                      <Text style={styles.alertTodayText}>{alert.status}</Text>
+                    </View>
+                  ))
+                )}
+              </ScrollView>
+              <TouchableOpacity style={styles.modalCancel} onPress={() => setAlertsVisible(false)}>
+                <Text style={styles.modalCancelText}>{t('common.close')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {manageVisible && (
+        <Modal transparent visible={manageVisible} animationType="slide">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCardLarge}>
+              <Text style={styles.modalTitle}>{t('profile.savedItineraries')}</Text>
+              <ScrollView style={{ maxHeight: 360 }}>
+                {itineraries.length === 0 ? (
+                  <Text style={styles.modalEmpty}>{t('profile.noItineraries')}</Text>
+                ) : (
+                  itineraries.map(itinerary => (
+                    <View key={itinerary.itinerary_id} style={styles.alertListItem}>
+                      <Text style={styles.itineraryTitle}>{itinerary.title}</Text>
+                      <Text style={styles.itineraryMeta}>
+                        {itinerary.stops} {t('profile.stops')} • {itinerary.days} {t('profile.days')}
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.deleteInline}
+                        onPress={() => handleDeleteItinerary(itinerary.itinerary_id)}
+                      >
+                        <Text style={styles.deleteInlineText}>{t('common.delete')}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))
+                )}
+              </ScrollView>
+              <TouchableOpacity style={styles.modalCancel} onPress={() => setManageVisible(false)}>
+                <Text style={styles.modalCancelText}>{t('common.close')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -585,6 +781,90 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     fontWeight: FontWeight.semibold,
     color: Colors.primary,
+  },
+
+  /* ── Modals ── */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.xl,
+  },
+  modalCard: {
+    width: '100%',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xl,
+  },
+  modalCardLarge: {
+    width: '100%',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xl,
+  },
+  modalTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+    color: Colors.text,
+    marginBottom: Spacing.md,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.lg,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    fontSize: FontSize.md,
+    marginBottom: Spacing.sm,
+    backgroundColor: Colors.surfaceElevated,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: Spacing.md,
+  },
+  modalCancel: {
+    flex: 1,
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.md,
+    marginRight: Spacing.sm,
+    backgroundColor: Colors.tag.bg,
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    color: Colors.textSecondary,
+    fontWeight: FontWeight.semibold,
+  },
+  modalSave: {
+    flex: 1,
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.md,
+    marginLeft: Spacing.sm,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+  },
+  modalSaveText: {
+    color: Colors.textOnPrimary,
+    fontWeight: FontWeight.semibold,
+  },
+  modalEmpty: {
+    textAlign: 'center',
+    color: Colors.textSecondary,
+    marginVertical: Spacing.md,
+  },
+  alertListItem: {
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.divider,
+  },
+  deleteInline: {
+    marginTop: Spacing.xs,
+    alignSelf: 'flex-start',
+  },
+  deleteInlineText: {
+    color: Colors.error,
+    fontWeight: FontWeight.semibold,
   },
 
   /* ── Alert Card ── */
