@@ -104,10 +104,10 @@ const handleSaveRoute = async () => {
 
 | 层级 | 模型 | 超时 |
 |------|------|------|
-| 主模型 | gemini-3-flash | 25s |
-| 主备选 | gpt-5.2 | 25s（共享主 timeout） |
-| 备用1 | Qwen2.5-72B (SiliconFlow) | 20s |
-| 备用2 | NVIDIA | **禁用**（API Key 为空） |
+| 主模型 | grok-4.1-fast | 25s |
+| 主备选 | grok-4.1-thinking | 25s（共享主 timeout） |
+| 备用1 | gpt-5.2 (ShowQR OpenAI) | 25s |
+| 备用2 | Qwen2.5-72B (SiliconFlow) | 20s |
 | 前端总超时 | — | 60s |
 
 最坏总链 = 25 + 20 = 45s < 前端 60s，后端始终比前端先 fail-fast，用户看到明确错误而非超时。
@@ -117,9 +117,8 @@ const handleSaveRoute = async () => {
 ```env
 # backend/.env
 LLM_PRIMARY_TIMEOUT=25               # 改自 45
-LLM_BACKUP1_TIMEOUT=20               # 改自 30
-LLM_BACKUP1_FALLBACK_MODELS=         # 清空，不再尝试 DeepSeek 慢模型
-LLM_BACKUP2_API_KEY=                 # 置空，禁用 NVIDIA 分支
+LLM_BACKUP1_TIMEOUT=25               # ShowQR OpenAI 备选
+LLM_BACKUP2_TIMEOUT=20               # SiliconFlow 保底
 ```
 
 ```python
@@ -147,7 +146,7 @@ const TIMEOUT_MS = 60_000;           // 改自 75_000
 
 | 测试项 | 环境 | 结果 | 详情 |
 |--------|------|------|------|
-| AI 规划（skip_preset=true） | curl via LAN IP | ✅ 21.2s | gemini-3-flash，6 legs，上海→大阪 72H |
+| AI 规划（skip_preset=true） | curl via LAN IP | ✅ 21.2s | grok-4.1-fast，6 legs，上海→大阪 72H |
 | AI 规划（带缓存） | curl via LAN IP | ✅ 83ms | 命中 Redis 缓存 |
 | LAN IP 健康检查 | curl 192.168.100.24:8001 | ✅ 通过 | `{"status":"ok"}` |
 | TypeScript 编译 | `npx tsc --noEmit` | ✅ 零错误 | EXIT=0 |

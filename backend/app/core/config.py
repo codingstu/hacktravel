@@ -30,30 +30,30 @@ class Settings(BaseSettings):
     CACHE_TTL_COLD: int = 259200  # 3 days for cold destinations
 
     # ── LLM Providers ────────────────────────────────────
-    # Primary: ShowQR gateway — gpt-5.2 confirmed fastest & most reliable
-    LLM_PRIMARY_BASE_URL: str = "https://openai.showqr.eu.cc/v1"
+    # Primary: ShowQR Grok gateway — prefer grok-4.1-fast / grok-4.1-thinking
+    LLM_PRIMARY_BASE_URL: str = "https://grok.showqr.eu.cc/v1"
     LLM_PRIMARY_API_KEY: str = ""
-    LLM_PRIMARY_MODEL: str = "gemini-3-flash"
-    LLM_PRIMARY_FALLBACK_MODELS: str = "gpt-5.2"
+    LLM_PRIMARY_MODEL: str = "grok-4.1-fast"
+    LLM_PRIMARY_FALLBACK_MODELS: str = "grok-4.1-thinking"
     LLM_PRIMARY_TIMEOUT: int = 25
     LLM_PRIMARY_REASONING_EFFORT: str = ""
     LLM_PRIMARY_MAX_COMPLETION_TOKENS: int = 0
     LLM_PRIMARY_MAX_LEGS: int = 6
     LLM_PRIMARY_MAX_TIPS_PER_LEG: int = 1
 
-    # First backup: SiliconFlow (保底 — reliable domestic provider)
-    LLM_BACKUP1_BASE_URL: str = "https://api.siliconflow.cn/v1"
+    # First backup: ShowQR OpenAI gateway — gpt-5.2 fallback
+    LLM_BACKUP1_BASE_URL: str = "https://openai.showqr.eu.cc/v1"
     LLM_BACKUP1_API_KEY: str = ""
-    LLM_BACKUP1_MODEL: str = "Qwen/Qwen2.5-72B-Instruct"
-    LLM_BACKUP1_FALLBACK_MODELS: str = "deepseek-ai/DeepSeek-V3,deepseek-ai/DeepSeek-R1"
-    LLM_BACKUP1_TIMEOUT: int = 30
+    LLM_BACKUP1_MODEL: str = "gpt-5.2"
+    LLM_BACKUP1_FALLBACK_MODELS: str = ""
+    LLM_BACKUP1_TIMEOUT: int = 25
 
-    # Second backup: NVIDIA NIM (last resort)
-    LLM_BACKUP2_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
+    # Second backup: SiliconFlow (保底 — reliable domestic provider)
+    LLM_BACKUP2_BASE_URL: str = "https://api.siliconflow.cn/v1"
     LLM_BACKUP2_API_KEY: str = ""
-    LLM_BACKUP2_MODEL: str = "z-ai/glm4.7"
-    LLM_BACKUP2_FALLBACK_MODELS: str = ""
-    LLM_BACKUP2_TIMEOUT: int = 35
+    LLM_BACKUP2_MODEL: str = "Qwen/Qwen2.5-72B-Instruct"
+    LLM_BACKUP2_FALLBACK_MODELS: str = "deepseek-ai/DeepSeek-V3,deepseek-ai/DeepSeek-R1"
+    LLM_BACKUP2_TIMEOUT: int = 20
 
     LLM_TEMPERATURE: float = 0.2
 

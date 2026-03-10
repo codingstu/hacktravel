@@ -1,9 +1,9 @@
 """LLM Gateway – multi-provider routing with provider/model-level degradation.
 
 Optimized degradation chain:
-  1. ShowQR gateway (primary): gemini-3-flash (~13s) → gpt-5.2 (fallback)
-  2. SiliconFlow (保底): Qwen2.5-72B-Instruct → DeepSeek-V3 → DeepSeek-R1
-  3. NVIDIA NIM (last resort): z-ai/glm4.7
+  1. ShowQR Grok gateway (primary): grok-4.1-fast → grok-4.1-thinking
+  2. ShowQR OpenAI gateway (backup): gpt-5.2
+  3. SiliconFlow (保底): Qwen2.5-72B-Instruct → DeepSeek-V3 → DeepSeek-R1
 
 Smart skip: if a gateway is UNREACHABLE (ConnectTimeout/ConnectError), skip all
 remaining models on that gateway. ReadTimeout does NOT trigger gateway skip
