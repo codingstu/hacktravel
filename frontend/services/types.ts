@@ -243,3 +243,104 @@ export interface PriceAlertListResponse {
   alerts: PriceAlertItem[];
   total: number;
 }
+
+// ── Tab4 Profile 用户中心 ──
+
+/** 用户资料 */
+export interface UserProfile {
+  device_id: string;
+  name: string;
+  tagline: string;
+  avatar_url: string | null;
+  countries_visited: number;
+}
+
+/** 用户资料响应 */
+export interface UserProfileResponse {
+  profile: UserProfile;
+  is_new: boolean;
+}
+
+/** 用户资料更新请求 */
+export interface UserProfileUpdateRequest {
+  device_id: string;
+  name?: string;
+  tagline?: string;
+  avatar_url?: string;
+  countries_visited?: number;
+}
+
+/** 用户统计 */
+export interface UserStats {
+  trips: number;
+  saved: number;
+  reviews: number;
+}
+
+/** 用户统计响应 */
+export interface UserStatsResponse {
+  stats: UserStats;
+  device_id: string;
+}
+
+/** 用户偏好 */
+export interface UserPreferences {
+  dark_mode: boolean;
+  language: string;
+  currency: string;
+}
+
+/** 用户偏好响应 */
+export interface UserPreferencesResponse {
+  success: boolean;
+  preferences: UserPreferences;
+}
+
+/** 用户偏好更新请求 */
+export interface UserPreferencesRequest {
+  device_id: string;
+  dark_mode?: boolean;
+  language?: string;
+  currency?: string;
+}
+
+/** 已保存行程 */
+export interface SavedItinerary {
+  itinerary_id: string;
+  title: string;
+  destination: string;
+  stops: number;
+  days: number;
+  cover_image: string | null;
+  saved_at: string;
+}
+
+/** 已保存行程列表响应 */
+export interface SavedItinerariesResponse {
+  itineraries: SavedItinerary[];
+  total: number;
+}
+
+/** 保存行程请求 */
+export interface SaveItineraryRequest {
+  device_id: string;
+  itinerary_id: string;
+  title: string;
+  destination: string;
+  stops?: number;
+  days?: number;
+  cover_image?: string;
+}
+
+/** 保存行程响应 */
+export interface SaveItineraryResponse {
+  success: boolean;
+  message: string;
+  itinerary_id: string;
+}
+
+/** 删除行程响应 */
+export interface DeleteItineraryResponse {
+  success: boolean;
+  message: string;
+}

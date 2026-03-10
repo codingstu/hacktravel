@@ -18,6 +18,15 @@ import {
   PriceAlertResponse,
   PriceAlertListResponse,
   RegionMetadataResponse,
+  UserProfileResponse,
+  UserProfileUpdateRequest,
+  UserStatsResponse,
+  UserPreferencesResponse,
+  UserPreferencesRequest,
+  SavedItinerariesResponse,
+  SaveItineraryRequest,
+  SaveItineraryResponse,
+  DeleteItineraryResponse,
 } from './types';
 
 // 开发环境下 Android 模拟器用 10.0.2.2，iOS/Web 用 localhost
@@ -347,4 +356,171 @@ export async function fetchPriceAlerts(
     throw new ApiError(parseErrorResponse(data));
   }
   return data as PriceAlertListResponse;
+}
+
+// ── Profile API (Tab4 用户中心) ─────────────────────────────
+
+/**
+ * 获取用户资料（不存在则自动创建）
+ */
+export async function fetchProfile(
+  deviceId: string,
+): Promise<UserProfileResponse> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/v1/profile?device_id=${encodeURIComponent(deviceId)}`,
+    { method: 'GET' },
+    10_000,
+  );
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(parseErrorResponse(data));
+  }
+  return data as UserProfileResponse;
+}
+
+/**
+ * 更新用户资料
+ */
+export async function updateProfile(
+  body: UserProfileUpdateRequest,
+): Promise<UserProfileResponse> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/v1/profile`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+    10_000,
+  );
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(parseErrorResponse(data));
+  }
+  return data as UserProfileResponse;
+}
+
+/**
+ * 获取用户统计数据
+ */
+export async function fetchProfileStats(
+  deviceId: string,
+): Promise<UserStatsResponse> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/v1/profile/stats?device_id=${encodeURIComponent(deviceId)}`,
+    { method: 'GET' },
+    10_000,
+  );
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(parseErrorResponse(data));
+  }
+  return data as UserStatsResponse;
+}
+
+/**
+ * 获取用户偏好设置
+ */
+export async function fetchPreferences(
+  deviceId: string,
+): Promise<UserPreferencesResponse> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/v1/profile/preferences?device_id=${encodeURIComponent(deviceId)}`,
+    { method: 'GET' },
+    10_000,
+  );
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(parseErrorResponse(data));
+  }
+  return data as UserPreferencesResponse;
+}
+
+/**
+ * 更新用户偏好设置
+ */
+export async function updatePreferences(
+  body: UserPreferencesRequest,
+): Promise<UserPreferencesResponse> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/v1/profile/preferences`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+    10_000,
+  );
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(parseErrorResponse(data));
+  }
+  return data as UserPreferencesResponse;
+}
+
+/**
+ * 获取已保存行程列表
+ */
+export async function fetchSavedItineraries(
+  deviceId: string,
+): Promise<SavedItinerariesResponse> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/v1/profile/itineraries?device_id=${encodeURIComponent(deviceId)}`,
+    { method: 'GET' },
+    10_000,
+  );
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(parseErrorResponse(data));
+  }
+  return data as SavedItinerariesResponse;
+}
+
+/**
+ * 保存行程到用户收藏
+ */
+export async function saveItinerary(
+  body: SaveItineraryRequest,
+): Promise<SaveItineraryResponse> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/v1/profile/itineraries`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+    10_000,
+  );
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(parseErrorResponse(data));
+  }
+  return data as SaveItineraryResponse;
+}
+
+/**
+ * 删除已保存行程
+ */
+export async function deleteSavedItinerary(
+  deviceId: string,
+  itineraryId: string,
+): Promise<DeleteItineraryResponse> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/v1/profile/itineraries/${encodeURIComponent(itineraryId)}?device_id=${encodeURIComponent(deviceId)}`,
+    { method: 'DELETE' },
+    10_000,
+  );
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(parseErrorResponse(data));
+  }
+  return data as DeleteItineraryResponse;
 }

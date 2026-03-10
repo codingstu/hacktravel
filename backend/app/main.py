@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.middleware import RequestIDMiddleware
-from app.routes import community, health, itinerary, leads, places, watchlist
+from app.routes import community, health, itinerary, leads, places, profile, watchlist
 from app.services.cache_service import cache_service
 
 logging.basicConfig(
@@ -57,6 +57,7 @@ def create_app() -> FastAPI:
     app.include_router(leads.router)
     app.include_router(places.router)
     app.include_router(watchlist.router)
+    app.include_router(profile.router)
 
     return app
 

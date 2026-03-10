@@ -9,9 +9,9 @@
  * - Saved Itineraries 卡片列表
  * - Personal Preferences 设置项
  *
- * 当前为前端 Mock 数据展示，后续接入用户系统后替换为真实数据。
+ * 对接真实后端 API，使用 device_id 作为匿名用户标识。
  */
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -22,9 +22,11 @@ import {
   Switch,
   Alert,
   Platform,
+  RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Colors,
   Spacing,
@@ -33,67 +35,92 @@ import {
   BorderRadius,
   Shadow,
 } from '@/constants/Theme';
-import { t } from '@/services/i18n';
+import { t, setLocale } from '@/services/i18n';
 import { getDestinationImage } from '@/services/images';
-
-/* ── Mock 用户数据 ── */
-const MOCK_USER = {
-  name: 'Alex Rivers',
-  tagline: 'Travel Enthusiast',
-  countriesVisited: 12,
-  avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop&auto=format&q=80',
-  stats: {
-    trips: 14,
-    saved: 8,
-    reviews: 22,
-  },
-};
-
-/* ── Mock 价格提醒 ── */
-const MOCK_PRICE_ALERTS = [
-  {
-    id: '1',
-    origin: 'London',
-    destination: 'Tokyo',
-    targetPrice: 850,
-    currency: 'USD',
-    drop: 120,
-    isToday: true,
-  },
-];
-
-/* ── Mock 已保存行程 ── */
-const MOCK_SAVED_ITINERARIES = [
-  {
-    id: '1',
-    title: 'West Coast Roadtrip',
-    stops: 12,
-    days: 14,
-    destination: '洛杉矶',
-  },
-  {
-    id: '2',
-    title: 'National Parks Hiking',
-    stops: 5,
-    days: 7,
-    destination: '温哥华',
-  },
-];
+import {
+  fetchProfile,
+  fetchProfileStats,
+  fetchPreferences,
+  updatePreferences,
+  fetchSavedItineraries,
+  deleteSavedItinerary,
+} from '@/services/api';
+import type {
+  UserProfile,
+  UserStats,
+  UserPreferences,
+  SavedItinerary,
+} from '@/services/types';
 
 /* ── 偏好设置选项 ── */
-const LANGUAGE_OPTIONS = ['English', '中文', '日本語', '한국어'];
-const CURRENCY_OPTIONS = ['USD ($)', 'CNY (¥)', 'JPY (¥)', 'EUR (€)', 'GBP (£)'];
+const LANGUAGE_OPTIONS = [
+  { label: 'English', value: 'en' },
+  { label: '中文', value: 'zh' },
+];
+const CURRENCY_OPTIONS = ['USD', 'CNY', 'JPY', 'EUR', 'GBP'];
 
 type ViewState = 'idle' | 'loading' | 'error';
+
+// 简单的设备 ID 生成器
+const getDeviceId = async () => {
+  let deviceId = await AsyncStorage.getItem('device_id');
+  if (!deviceId) {
+    deviceId = `dev_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    await AsyncStorage.setItem('device_id', deviceId);
+  }
+  return deviceId;
+};
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
 
-  // ── 偏好设置状态 ──
-  const [darkMode, setDarkMode] = useState(false);
-  const [selectedLanguage, setSelectedLanguage] = useState('English');
-  const [selectedCurrency, setSelectedCurrency] = useState('USD ($)');
-  const [viewState] = useState<ViewState>('idle');
+  const [viewState, setViewState] = useState<ViewState>('loading');
+  const [refreshing, setRefreshing] = useState(false);
+  const [deviceId, setDeviceId] = useState<string>('');
+
+  // ── 数据状态 ──
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [stats, setStats] = useState<UserStats | null>(null);
+  const [preferences, setPreferences] = useState<UserPreferences | null>(null);
+  const [itineraries, setItineraries] = useState<SavedItinerary[]>([]);
+
+  const loadData = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setViewState('loading');
+
+    try {
+      const id = await getDeviceId();
+      setDeviceId(id);
+
+      const [profileRes, statsRes, prefsRes, itinsRes] = await Promise.all([
+        fetchProfile(id),
+        fetchProfileStats(id),
+        fetchPreferences(id),
+        fetchSavedItineraries(id),
+      ]);
+
+      setProfile(profileRes.profile);
+      setStats(statsRes.stats);
+      setPreferences(prefsRes.preferences);
+      setItineraries(itinsRes.itineraries);
+
+      // 同步语言设置
+      if (prefsRes.preferences.language === 'zh' || prefsRes.preferences.language === 'en') {
+        setLocale(prefsRes.preferences.language as 'zh' | 'en');
+      }
+
+      setViewState('idle');
+    } catch (error) {
+      console.error('Failed to load profile data:', error);
+      setViewState('error');
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   // ── 事件处理 ──
   const handleEditProfile = useCallback(() => {
@@ -128,11 +155,22 @@ export default function ProfileScreen() {
       t('profile.preferredLanguage'),
       undefined,
       LANGUAGE_OPTIONS.map(lang => ({
-        text: lang,
-        onPress: () => setSelectedLanguage(lang),
+        text: lang.label,
+        onPress: async () => {
+          if (!deviceId) return;
+          try {
+            const res = await updatePreferences({ device_id: deviceId, language: lang.value });
+            setPreferences(res.preferences);
+            if (lang.value === 'zh' || lang.value === 'en') {
+              setLocale(lang.value as 'zh' | 'en');
+            }
+          } catch (e) {
+            Alert.alert(t('common.error'));
+          }
+        },
       })),
     );
-  }, []);
+  }, [deviceId]);
 
   const handleCurrencySelect = useCallback(() => {
     Alert.alert(
@@ -140,10 +178,50 @@ export default function ProfileScreen() {
       undefined,
       CURRENCY_OPTIONS.map(cur => ({
         text: cur,
-        onPress: () => setSelectedCurrency(cur),
+        onPress: async () => {
+          if (!deviceId) return;
+          try {
+            const res = await updatePreferences({ device_id: deviceId, currency: cur });
+            setPreferences(res.preferences);
+          } catch (e) {
+            Alert.alert(t('common.error'));
+          }
+        },
       })),
     );
-  }, []);
+  }, [deviceId]);
+
+  const handleToggleDarkMode = useCallback(async (value: boolean) => {
+    if (!deviceId) return;
+    try {
+      // 乐观更新
+      setPreferences(prev => prev ? { ...prev, dark_mode: value } : null);
+      await updatePreferences({ device_id: deviceId, dark_mode: value });
+    } catch (e) {
+      // 恢复
+      setPreferences(prev => prev ? { ...prev, dark_mode: !value } : null);
+      Alert.alert(t('common.error'));
+    }
+  }, [deviceId]);
+
+  const handleDeleteItinerary = useCallback((id: string) => {
+    Alert.alert(t('common.delete'), t('profile.logoutConfirm'), [ // Reuse confirm text or add new
+      { text: t('plan.cancel'), style: 'cancel' },
+      {
+        text: t('common.delete'),
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteSavedItinerary(deviceId, id);
+            setItineraries(prev => prev.filter(i => i.itinerary_id !== id));
+            setStats(prev => prev ? { ...prev, saved: Math.max(0, prev.saved - 1) } : null);
+          } catch (e) {
+            Alert.alert(t('common.error'));
+          }
+        },
+      },
+    ]);
+  }, [deviceId]);
 
   // ── 空态 / 加载态 / 错误态 ──
   if (viewState === 'loading') {
@@ -184,23 +262,26 @@ export default function ProfileScreen() {
         style={styles.scrollView}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => loadData(true)} />
+        }
       >
         {/* ── 用户头像卡片 ── */}
         <View style={[styles.profileCard, Shadow.md]}>
           <View style={styles.avatarContainer}>
             <Image
-              source={{ uri: MOCK_USER.avatarUrl }}
+              source={{ uri: profile?.avatar_url || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop&auto=format&q=80' }}
               style={styles.avatar}
             />
             <View style={styles.cameraIconWrap}>
               <Ionicons name="camera" size={14} color={Colors.textOnPrimary} />
             </View>
           </View>
-          <Text style={styles.userName}>{MOCK_USER.name}</Text>
+          <Text style={styles.userName}>{profile?.name || 'Traveler'}</Text>
           <View style={styles.taglineRow}>
             <Ionicons name="checkmark-circle" size={16} color={Colors.primary} />
             <Text style={styles.taglineText}>
-              {MOCK_USER.tagline} • {MOCK_USER.countriesVisited} {t('profile.countries')}
+              {profile?.tagline || 'Travel Enthusiast'} • {profile?.countries_visited || 0} {t('profile.countries')}
             </Text>
           </View>
           <View style={styles.actionRow}>
@@ -216,15 +297,15 @@ export default function ProfileScreen() {
         {/* ── 统计数据栏 ── */}
         <View style={styles.statsRow}>
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{MOCK_USER.stats.trips}</Text>
+            <Text style={styles.statNumber}>{stats?.trips || 0}</Text>
             <Text style={styles.statLabel}>{t('profile.trips')}</Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{MOCK_USER.stats.saved}</Text>
+            <Text style={styles.statNumber}>{stats?.saved || 0}</Text>
             <Text style={styles.statLabel}>{t('profile.saved')}</Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{MOCK_USER.stats.reviews}</Text>
+            <Text style={styles.statNumber}>{stats?.reviews || 0}</Text>
             <Text style={styles.statLabel}>{t('profile.reviews')}</Text>
           </View>
         </View>
@@ -236,29 +317,26 @@ export default function ProfileScreen() {
             <Text style={styles.sectionAction}>{t('profile.viewAll')}</Text>
           </TouchableOpacity>
         </View>
-        {MOCK_PRICE_ALERTS.map(alert => (
-          <View key={alert.id} style={[styles.alertCard, Shadow.sm]}>
-            <View style={styles.alertIconWrap}>
-              <Ionicons name="notifications-outline" size={22} color={Colors.primary} />
-            </View>
-            <View style={styles.alertContent}>
-              <Text style={styles.alertRoute}>
-                {alert.origin} {t('profile.to')} {alert.destination}
-              </Text>
-              <Text style={styles.alertTarget}>
-                {t('profile.targetPrice')}: {t('profile.under')} ${alert.targetPrice}
-              </Text>
-            </View>
-            <View style={styles.alertDropWrap}>
-              <Text style={styles.alertDropText}>
-                -${alert.drop} {t('profile.drop')}
-              </Text>
-              {alert.isToday && (
-                <Text style={styles.alertTodayText}>{t('profile.today')}</Text>
-              )}
-            </View>
+        {/* Placeholder for alerts as they are fetched via email in current API */}
+        <View style={[styles.alertCard, Shadow.sm]}>
+          <View style={styles.alertIconWrap}>
+            <Ionicons name="notifications-outline" size={22} color={Colors.primary} />
           </View>
-        ))}
+          <View style={styles.alertContent}>
+            <Text style={styles.alertRoute}>
+              London {t('profile.to')} Tokyo
+            </Text>
+            <Text style={styles.alertTarget}>
+              {t('profile.targetPrice')}: {t('profile.under')} $850
+            </Text>
+          </View>
+          <View style={styles.alertDropWrap}>
+            <Text style={styles.alertDropText}>
+              -$120 {t('profile.drop')}
+            </Text>
+            <Text style={styles.alertTodayText}>{t('profile.today')}</Text>
+          </View>
+        </View>
 
         {/* ── Saved Itineraries ── */}
         <View style={styles.sectionHeader}>
@@ -267,23 +345,32 @@ export default function ProfileScreen() {
             <Text style={styles.sectionAction}>{t('profile.manage')}</Text>
           </TouchableOpacity>
         </View>
-        {MOCK_SAVED_ITINERARIES.map(itinerary => (
-          <View key={itinerary.id} style={[styles.itineraryCard, Shadow.sm]}>
-            <Image
-              source={{ uri: getDestinationImage(itinerary.destination, 800, 400) }}
-              style={styles.itineraryImage}
-            />
-            <TouchableOpacity style={styles.itineraryBookmark}>
-              <Ionicons name="bookmark" size={20} color={Colors.primary} />
-            </TouchableOpacity>
-            <View style={styles.itineraryInfo}>
-              <Text style={styles.itineraryTitle}>{itinerary.title}</Text>
-              <Text style={styles.itineraryMeta}>
-                {itinerary.stops} {t('profile.stops')} • {itinerary.days} {t('profile.days')}
-              </Text>
+        {itineraries.length === 0 ? (
+          <Text style={{ color: Colors.textSecondary, textAlign: 'center', marginVertical: Spacing.lg }}>
+            No saved itineraries yet.
+          </Text>
+        ) : (
+          itineraries.map(itinerary => (
+            <View key={itinerary.itinerary_id} style={[styles.itineraryCard, Shadow.sm]}>
+              <Image
+                source={{ uri: itinerary.cover_image || getDestinationImage(itinerary.destination, 800, 400) }}
+                style={styles.itineraryImage}
+              />
+              <TouchableOpacity
+                style={styles.itineraryBookmark}
+                onPress={() => handleDeleteItinerary(itinerary.itinerary_id)}
+              >
+                <Ionicons name="bookmark" size={20} color={Colors.primary} />
+              </TouchableOpacity>
+              <View style={styles.itineraryInfo}>
+                <Text style={styles.itineraryTitle}>{itinerary.title}</Text>
+                <Text style={styles.itineraryMeta}>
+                  {itinerary.stops} {t('profile.stops')} • {itinerary.days} {t('profile.days')}
+                </Text>
+              </View>
             </View>
-          </View>
-        ))}
+          ))
+        )}
 
         {/* ── Personal Preferences ── */}
         <Text style={[styles.sectionTitle, { marginTop: Spacing.xl, marginBottom: Spacing.md }]}>
@@ -299,8 +386,8 @@ export default function ProfileScreen() {
             <Text style={styles.prefLabel}>{t('profile.darkMode')}</Text>
           </View>
           <Switch
-            value={darkMode}
-            onValueChange={setDarkMode}
+            value={preferences?.dark_mode || false}
+            onValueChange={handleToggleDarkMode}
             trackColor={{ false: Colors.tag.bg, true: Colors.primary }}
             thumbColor={Colors.surface}
             ios_backgroundColor={Colors.tag.bg}
@@ -316,7 +403,9 @@ export default function ProfileScreen() {
             <Text style={styles.prefLabel}>{t('profile.preferredLanguage')}</Text>
           </View>
           <View style={styles.prefRight}>
-            <Text style={styles.prefValue}>{selectedLanguage}</Text>
+            <Text style={styles.prefValue}>
+              {LANGUAGE_OPTIONS.find(l => l.value === preferences?.language)?.label || 'English'}
+            </Text>
             <Ionicons name="chevron-forward" size={18} color={Colors.textLight} />
           </View>
         </TouchableOpacity>
@@ -330,7 +419,7 @@ export default function ProfileScreen() {
             <Text style={styles.prefLabel}>{t('profile.defaultCurrency')}</Text>
           </View>
           <View style={styles.prefRight}>
-            <Text style={styles.prefValue}>{selectedCurrency}</Text>
+            <Text style={styles.prefValue}>{preferences?.currency || 'USD'}</Text>
             <Ionicons name="chevron-forward" size={18} color={Colors.textLight} />
           </View>
         </TouchableOpacity>
