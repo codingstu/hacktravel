@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, FontWeight, Spacing, BorderRadius, Shadow } from '@/constants/Theme';
 
@@ -16,11 +16,20 @@ export default function TabLayout() {
         tabBarInactiveTintColor: Colors.tab.inactive,
         tabBarStyle: {
           backgroundColor: Colors.tab.bg,
-          borderTopWidth: 0,
-          height: 60,
-          paddingBottom: 6,
-          paddingTop: 4,
-          ...Shadow.md,
+          borderTopWidth: 1,
+          borderTopColor: Colors.tab.border,
+          height: Platform.select({ ios: 78, android: 70 }),
+          paddingBottom: Platform.select({ ios: 12, android: 8 }),
+          paddingTop: 8,
+          borderRadius: BorderRadius.xl,
+          marginHorizontal: Spacing.lg,
+          marginBottom: Spacing.lg,
+          position: 'absolute',
+          ...Shadow.lg,
+        },
+        tabBarItemStyle: {
+          borderRadius: BorderRadius.lg,
+          marginHorizontal: 4,
         },
         tabBarLabelStyle: {
           fontSize: FontSize.xs,
@@ -95,9 +104,11 @@ export default function TabLayout() {
 const styles = StyleSheet.create({
   activeIconWrap: {
     backgroundColor: Colors.primaryLight,
+    borderWidth: 1,
+    borderColor: Colors.border,
     borderRadius: BorderRadius.full,
-    width: 36,
-    height: 36,
+    width: 38,
+    height: 38,
     alignItems: 'center',
     justifyContent: 'center',
   },

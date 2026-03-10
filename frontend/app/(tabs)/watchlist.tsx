@@ -219,6 +219,18 @@ export default function WatchlistScreen() {
 
       {/* ── 暗色 Hero ── */}
       <View style={styles.hero}>
+        <View style={styles.heroTopRow}>
+          <View style={styles.heroPill}>
+            <Ionicons name="pulse-outline" size={12} color={Colors.textOnDark} />
+            <Text style={styles.heroPillText}>Flight Radar</Text>
+          </View>
+          <View style={styles.heroBadge}>
+            <Text style={styles.heroBadgeText}>LIVE</Text>
+          </View>
+        </View>
+        <Text style={styles.heroTitle}>实时盯盘 · 底价捕手</Text>
+        <Text style={styles.heroSub}>设置目标价，系统持续扫描并在触发后第一时间提醒你</Text>
+
         <Animated.View
           style={[styles.radarOuter, { transform: [{ scale: pulseAnim }] }]}>
           <View style={styles.radarMiddle}>
@@ -536,10 +548,60 @@ const styles = StyleSheet.create({
   // ── Hero
   hero: {
     alignItems: 'center',
-    paddingVertical: Spacing.xxxl,
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.xl,
+    paddingBottom: Spacing.xxxl,
     backgroundColor: Colors.secondary,
     borderBottomLeftRadius: BorderRadius.xl,
     borderBottomRightRadius: BorderRadius.xl,
+  },
+  heroTopRow: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  heroPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 5,
+    borderRadius: BorderRadius.full,
+    backgroundColor: '#FFFFFF20',
+  },
+  heroPillText: {
+    color: Colors.textOnDark,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+  },
+  heroBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.status.liveBg,
+  },
+  heroBadgeText: {
+    color: Colors.status.liveText,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.bold,
+    letterSpacing: 0.5,
+  },
+  heroTitle: {
+    width: '100%',
+    color: Colors.accent,
+    fontSize: FontSize.xxl,
+    fontWeight: FontWeight.bold,
+    letterSpacing: -0.3,
+  },
+  heroSub: {
+    width: '100%',
+    color: Colors.textOnDark,
+    fontSize: FontSize.sm,
+    marginTop: Spacing.xs,
+    marginBottom: Spacing.lg,
+    lineHeight: 20,
   },
   radarOuter: {
     width: 140,
@@ -622,6 +684,8 @@ const styles = StyleSheet.create({
   alertCard: {
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
     padding: Spacing.lg,
     ...Shadow.md,
   },
@@ -635,7 +699,9 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   fieldInput: {
-    backgroundColor: Colors.background,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.border,
     borderRadius: BorderRadius.sm,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
@@ -649,14 +715,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.full,
-    backgroundColor: Colors.background,
+    backgroundColor: Colors.tag.bg,
     marginRight: Spacing.sm,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: Colors.tag.border,
   },
   quickTagActive: {
-    backgroundColor: Colors.primaryLight,
-    borderColor: Colors.primary,
+    backgroundColor: Colors.tagActive.bg,
+    borderColor: Colors.tagActive.border,
   },
   quickTagText: {
     fontSize: FontSize.xs,
@@ -669,7 +735,9 @@ const styles = StyleSheet.create({
   priceInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.background,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.border,
     borderRadius: BorderRadius.sm,
     paddingHorizontal: Spacing.md,
   },
@@ -746,6 +814,8 @@ const styles = StyleSheet.create({
   alertItem: {
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
     padding: Spacing.md,
     marginBottom: Spacing.sm,
     borderLeftWidth: 3,
@@ -774,7 +844,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.xs,
   },
   alertStatusActive: {
-    backgroundColor: Colors.success + '18',
+    backgroundColor: Colors.status.liveBg,
   },
   alertStatusInactive: {
     backgroundColor: Colors.textLight + '18',
@@ -784,7 +854,7 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
   },
   alertStatusTextActive: {
-    color: Colors.success,
+    color: Colors.status.liveText,
   },
   alertStatusTextInactive: {
     color: Colors.textLight,

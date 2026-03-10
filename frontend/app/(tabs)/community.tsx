@@ -24,6 +24,7 @@ import {
   Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   Colors,
   Spacing,
@@ -204,18 +205,26 @@ export default function CommunityScreen() {
         />
       }>
       {/* 头部 */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>精选路线</Text>
-        <Text style={styles.headerSub}>
-          被验证过的极限行程，直接抄作业省心省力
-        </Text>
-        {dataSource === 'api' && (
-          <View style={styles.liveIndicator}>
-            <View style={styles.liveDot} />
-            <Text style={styles.liveText}>实时数据 · {routes.length} 条路线</Text>
+      <LinearGradient
+        colors={[Colors.gradient.heroStart, Colors.gradient.heroEnd]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.header}>
+        <View style={styles.headerTopRow}>
+          <View style={styles.headerPill}>
+            <Ionicons name="sparkles-outline" size={12} color={Colors.accent} />
+            <Text style={styles.headerPillText}>Community Picks</Text>
           </View>
-        )}
-      </View>
+          {dataSource === 'api' && (
+            <View style={styles.liveIndicator}>
+              <View style={styles.liveDot} />
+              <Text style={styles.liveText}>实时 · {routes.length} 条</Text>
+            </View>
+          )}
+        </View>
+        <Text style={styles.headerTitle}>精选路线</Text>
+        <Text style={styles.headerSub}>被验证过的极限行程，直接抄作业省心省力</Text>
+      </LinearGradient>
 
       {/* 路线卡片 */}
       {routes.map(route => (
@@ -535,24 +544,51 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.xl,
-    paddingBottom: Spacing.md,
+    paddingBottom: Spacing.lg,
+    borderBottomLeftRadius: BorderRadius.xl,
+    borderBottomRightRadius: BorderRadius.xl,
+    marginBottom: Spacing.md,
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  headerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF20',
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 5,
+    gap: 6,
+  },
+  headerPillText: {
+    fontSize: FontSize.xs,
+    color: Colors.accent,
+    fontWeight: FontWeight.semibold,
+    letterSpacing: 0.2,
   },
   headerTitle: {
     fontSize: FontSize.title,
     fontWeight: FontWeight.bold,
-    color: Colors.text,
+    color: Colors.accent,
     letterSpacing: -0.5,
   },
   headerSub: {
     fontSize: FontSize.sm,
-    color: Colors.textSecondary,
+    color: Colors.textOnDark,
     marginTop: Spacing.xs,
   },
   liveIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: Spacing.sm,
     gap: 6,
+    backgroundColor: Colors.status.liveBg,
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
   },
   liveDot: {
     width: 6,
@@ -562,7 +598,8 @@ const styles = StyleSheet.create({
   },
   liveText: {
     fontSize: FontSize.xs,
-    color: Colors.textSecondary,
+    color: Colors.status.liveText,
+    fontWeight: FontWeight.semibold,
   },
 
   // ── Card
@@ -572,6 +609,8 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
     borderRadius: BorderRadius.lg,
     backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
     overflow: 'hidden',
     ...Shadow.md,
   },
@@ -590,14 +629,14 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   badge: {
-    backgroundColor: Colors.accent + '20',
+    backgroundColor: Colors.status.progressBg,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 2,
     borderRadius: BorderRadius.xs,
   },
   badgeText: {
     fontSize: FontSize.xs,
-    color: '#B07A18',
+    color: Colors.status.progressText,
     fontWeight: FontWeight.semibold,
   },
   cardTitle: {
@@ -613,7 +652,9 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   metaChip: {
-    backgroundColor: Colors.background,
+    backgroundColor: Colors.tag.bg,
+    borderWidth: 1,
+    borderColor: Colors.tag.border,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 3,
     borderRadius: BorderRadius.xs,
@@ -628,7 +669,9 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   tag: {
-    backgroundColor: Colors.primaryLight,
+    backgroundColor: Colors.tagActive.bg,
+    borderWidth: 1,
+    borderColor: Colors.tagActive.border,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 2,
     borderRadius: BorderRadius.xs,

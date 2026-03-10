@@ -24,6 +24,7 @@ import {
   Image,
 } from 'react-native';
 import * as Location from 'expo-location';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import {
   DEFAULT_CONTINENT,
@@ -395,12 +396,34 @@ export default function GenerateScreen() {
         showsVerticalScrollIndicator={false}>
 
         {/* ── Hero 头部 ── */}
-        <View style={styles.hero}>
-          <Text style={styles.heroTitle}>去哪儿{'\n'}穷游爆改？</Text>
+        <LinearGradient
+          colors={[Colors.gradient.heroStart, Colors.gradient.heroEnd]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.hero}>
+          <View style={styles.heroTopRow}>
+            <View style={styles.heroBrand}>
+              <Ionicons name="paper-plane" size={14} color={Colors.accent} />
+              <Text style={styles.heroBrandText}>HackTravel Dispatch</Text>
+            </View>
+            <View style={styles.heroMenu}>
+              <Ionicons name="menu" size={18} color={Colors.text} />
+            </View>
+          </View>
+          <Text style={styles.heroTitle}>Plan Smart{'\n'}Travel Better</Text>
           <Text style={styles.heroSub}>
-            输入目的地，AI 帮你把每分钟、每块钱安排到极致
+            输入目的地，快速生成舒适、可执行、可编辑的完整行程
           </Text>
-        </View>
+          <View style={styles.heroStatsRow}>
+            <HeroMetric label="时长" value={`${hours || '48'}h`} icon="time-outline" />
+            <HeroMetric
+              label="预算"
+              value={`¥${(parseInt(budget, 10) || 3000).toLocaleString()}`}
+              icon="wallet-outline"
+            />
+            <HeroMetric label="区域" value={selectedContinent.toUpperCase()} icon="earth-outline" />
+          </View>
+        </LinearGradient>
 
         {/* ── 输入区 ── */}
         <View style={styles.formCard}>
@@ -571,7 +594,7 @@ export default function GenerateScreen() {
                     styles.tagText,
                     selectedTags.includes(tag.key) && styles.tagTextActive,
                   ]}>
-                  {tag.emoji} {tag.key}
+                  {tag.key}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -736,7 +759,7 @@ export default function GenerateScreen() {
                   </TouchableOpacity>
                 ) : (
                   <View style={styles.addLegForm}>
-                    <Text style={styles.addLegFormTitle}>✏️ 新增途经点</Text>
+                    <Text style={styles.addLegFormTitle}>新增途经点</Text>
                     <TextInput
                       style={styles.addLegInput}
                       value={newLegName}
@@ -763,12 +786,12 @@ export default function GenerateScreen() {
                       showsHorizontalScrollIndicator={false}
                       style={{ marginBottom: Spacing.md }}>
                       {[
-                        { key: 'attraction', label: '🏛 景点' },
-                        { key: 'food', label: '🍜 美食' },
-                        { key: 'transit', label: '🚌 交通' },
-                        { key: 'shopping', label: '🛍 购物' },
-                        { key: 'rest', label: '🏨 住宿' },
-                        { key: 'flight', label: '✈️ 航班' },
+                        { key: 'attraction', label: '景点' },
+                        { key: 'food', label: '美食' },
+                        { key: 'transit', label: '交通' },
+                        { key: 'shopping', label: '购物' },
+                        { key: 'rest', label: '住宿' },
+                        { key: 'flight', label: '航班' },
                       ].map(t => (
                         <TouchableOpacity
                           key={t.key}
@@ -991,6 +1014,24 @@ function SummaryPill({ label, value, sub }: { label: string; value: string; sub?
   );
 }
 
+function HeroMetric({
+  icon,
+  label,
+  value,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.heroMetric}>
+      <Ionicons name={icon} size={12} color={Colors.accent} />
+      <Text style={styles.heroMetricLabel}>{label}</Text>
+      <Text style={styles.heroMetricValue}>{value}</Text>
+    </View>
+  );
+}
+
 function TimelineLeg({
   leg,
   index,
@@ -1104,28 +1145,81 @@ const styles = StyleSheet.create({
   hero: {
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.xl,
-    paddingBottom: Spacing.lg,
+    paddingBottom: Spacing.xxl,
+    borderBottomLeftRadius: BorderRadius.xl,
+    borderBottomRightRadius: BorderRadius.xl,
+  },
+  heroTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.lg,
+  },
+  heroBrand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.full,
+    gap: 6,
+    backgroundColor: '#FFFFFF20',
+  },
+  heroBrandText: {
+    color: Colors.accent,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+    letterSpacing: 0.2,
+  },
+  heroMenu: {
+    width: 34,
+    height: 34,
+    borderRadius: BorderRadius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: Colors.surface,
   },
   heroTitle: {
-    fontSize: FontSize.hero,
+    fontSize: 38,
     fontWeight: FontWeight.heavy,
-    color: Colors.text,
-    lineHeight: 42,
-    letterSpacing: -1,
+    color: Colors.accent,
+    lineHeight: 44,
+    letterSpacing: -1.2,
   },
   heroSub: {
     fontSize: FontSize.md,
-    color: Colors.textSecondary,
+    color: Colors.textOnDark,
     marginTop: Spacing.sm,
     lineHeight: 22,
+  },
+  heroStatsRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginTop: Spacing.lg,
+  },
+  heroMetric: {
+    flex: 1,
+    backgroundColor: '#FFFFFF20',
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.sm,
+    alignItems: 'center',
+    gap: 2,
+  },
+  heroMetricLabel: {
+    color: Colors.textOnDark,
+    fontSize: FontSize.xs,
+  },
+  heroMetricValue: {
+    color: Colors.accent,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
   },
 
   // ── Form Card
   formCard: {
     backgroundColor: Colors.surface,
     marginHorizontal: Spacing.lg,
-    marginTop: Spacing.md,
+    marginTop: -Spacing.lg,
     padding: Spacing.xl,
     borderRadius: BorderRadius.lg,
     ...Shadow.md,
@@ -1152,7 +1246,9 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.xs,
   },
   input: {
-    backgroundColor: Colors.background,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.border,
     borderRadius: BorderRadius.sm,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
@@ -1162,7 +1258,7 @@ const styles = StyleSheet.create({
   },
   inputHighlight: {
     borderWidth: 1.5,
-    borderColor: Colors.primaryLight,
+    borderColor: Colors.primary,
   },
 
   // ── Hot destinations
@@ -1176,11 +1272,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.full,
-    backgroundColor: Colors.background,
+    backgroundColor: Colors.tag.bg,
+    borderWidth: 1,
+    borderColor: Colors.tag.border,
     marginRight: Spacing.sm,
   },
   hotChipActive: {
-    backgroundColor: Colors.primaryLight,
+    backgroundColor: Colors.tagActive.bg,
+    borderColor: Colors.tagActive.border,
   },
   hotChipText: {
     fontSize: FontSize.sm,
@@ -1245,10 +1344,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.full,
-    backgroundColor: Colors.background,
+    backgroundColor: Colors.tag.bg,
+    borderWidth: 1,
+    borderColor: Colors.tag.border,
   },
   tagChipActive: {
-    backgroundColor: Colors.primaryLight,
+    backgroundColor: Colors.tagActive.bg,
+    borderColor: Colors.tagActive.border,
   },
   tagText: {
     fontSize: FontSize.sm,
@@ -1325,6 +1427,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.xl,
     padding: Spacing.xl,
     marginBottom: Spacing.lg,
+    ...Shadow.lg,
   },
   summaryTitle: {
     color: Colors.accent,
@@ -1372,7 +1475,7 @@ const styles = StyleSheet.create({
     right: Spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '`${Colors.success}18`',
+    backgroundColor: `${Colors.success}18`,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 3,
     borderRadius: BorderRadius.full,
@@ -1462,6 +1565,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
     padding: Spacing.lg,
     marginBottom: Spacing.md,
     marginLeft: Spacing.sm,
@@ -1539,7 +1644,7 @@ const styles = StyleSheet.create({
 
   // ── Maps
   mapsBtn: {
-    backgroundColor: '#1A73E8',
+    backgroundColor: Colors.primaryDark,
     borderRadius: BorderRadius.lg,
     paddingVertical: Spacing.lg,
     flexDirection: 'row',
@@ -1547,7 +1652,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.sm,
     marginBottom: Spacing.xxl,
-    ...Shadow.colored('#1A73E8'),
+    ...Shadow.colored(Colors.primaryDark),
   },
   mapsBtnText: {
     color: Colors.accent,

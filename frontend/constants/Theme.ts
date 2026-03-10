@@ -1,71 +1,79 @@
 /**
- * HackTravel 设计系统 v5 — 「商业级蓝白现代」风格 (Premium Commercial)
+ * HackTravel 设计系统 v6 — 「轻物流卡片」风格
  *
- * 设计原则与用户心理：
- * 1. 极致信任感：使用经典商务蓝为核心品牌色，缓解用户的认知焦虑，建立对应用的信任。
- * 2. 视觉友好：抛弃刺眼的荧光绿与沉闷的暗色杂交，统一为大面积清爽留白＋高级深邃的对比色。
- * 3. 商业落地感（Airbnb / Stripe)：文字、投影与间距全面贴合主流顶尖应用的沉浸式体验。
+ * 视觉目标：
+ * - 大面积柔和雾蓝背景，阅读舒适不刺眼
+ * - 高圆角卡片 + 轻投影，建立明确层级
+ * - 统一状态色与标签胶囊，提升“系统感”
  */
 export const Colors = {
-  // ── 主色 ── (商业级湛蓝)
-  primary: '#2563EB',       // Blue 600 - 高级商业首选颜色，信任感强
-  primaryLight: '#EFF6FF',  // Blue 50 - 清透的浅蓝底色
-  primaryDark: '#1D4ED8',   // Blue 700 - 操作态深蓝
-  accent: '#FFFFFF',        // 反色：用于主色/带颜色背景上的纯白图标与字体
+  // ── 主色 ──
+  primary: '#2D6CDF',
+  primaryLight: '#EAF1FF',
+  primaryDark: '#1F4FB2',
+  accent: '#FFFFFF',
 
   // ── 基底 ──
-  secondary: '#0F172A',     // Slate 900 - 极沉稳的黑蓝，用于高端黑卡、摘要
-  secondaryLight: '#1E293B',// Slate 800 - 深色区域边框与提升层
-  background: '#F8FAFC',    // Slate 50 - 比纯白稍微柔和的冷灰底，减少眼部疲劳
-  surface: '#FFFFFF',       // 纯白表单与组件底
-  surfaceElevated: '#FFFFFF', 
+  secondary: '#10243F',
+  secondaryLight: '#1B3A5F',
+  background: '#EAF0F4',
+  surface: '#FFFFFF',
+  surfaceElevated: '#FDFEFF',
 
   // ── 文字 ──
-  text: '#0F172A',          // 极深色，主文字
-  textSecondary: '#475569', // Slate 600 - 优秀的次级阅读色
-  textLight: '#94A3B8',     // Slate 400 - 输入框占位符
-  textOnDark: '#F8FAFC',    // 暗色卡片上的辅助文字色
-  textOnPrimary: '#FFFFFF', // 主色块上的文字（强制对比白）
+  text: '#10243F',
+  textSecondary: '#4E627B',
+  textLight: '#90A2B7',
+  textOnDark: '#DFE7F2',
+  textOnPrimary: '#FFFFFF',
 
   // ── 功能色 ──
-  border: '#E2E8F0',        // 极淡的高级分割线 (Slate 200)
-  divider: '#F1F5F9',       // Slate 100
-  success: '#10B981',       // 统一标准的绿 (Emerald 500)
-  warning: '#F59E0B',       // Amber 500
-  error: '#EF4444',         // Red 500
+  border: '#D9E3EF',
+  divider: '#E8EEF5',
+  success: '#1F9A68',
+  warning: '#F0A34B',
+  error: '#DF5757',
 
   // ── 时间轴 ──
-  timeline: '#2563EB',      // 蓝色主轴
-  timelineFaded: '#DBEAFE', // 轨道浅色底
+  timeline: '#3A79D7',
+  timelineFaded: '#D8E5FA',
 
   // ── 标签 ──
   tag: {
-    bg: '#F1F5F9',
-    text: '#475569',
-    border: '#E2E8F0',
+    bg: '#F2F6FB',
+    text: '#4E627B',
+    border: '#D9E3EF',
   },
   tagActive: {
-    bg: '#EFF6FF',
-    text: '#2563EB',
-    border: '#2563EB',
+    bg: '#EAF1FF',
+    text: '#2D6CDF',
+    border: '#2D6CDF',
+  },
+
+  // ── 状态色 ──
+  status: {
+    progressBg: '#FFF2E4',
+    progressText: '#BE6A1E',
+    liveBg: '#EAF8F1',
+    liveText: '#1F9A68',
   },
 
   // ── Tab Bar ──
   tab: {
-    active: '#2563EB',
-    inactive: '#94A3B8',
+    active: '#2D6CDF',
+    inactive: '#92A4B8',
     bg: '#FFFFFF',
-    border: '#E2E8F0',
+    border: '#D9E3EF',
   },
 
-  // ── 渐变：用于 Header / Hero (商业极简避免过度渐变) ──
+  // ── 渐变 ──
   gradient: {
-    heroStart: '#2563EB',
-    heroEnd: '#1D4ED8',
-    ctaStart: '#2563EB',
-    ctaEnd: '#2563EB',
+    heroStart: '#90A4B5',
+    heroEnd: '#AABBC8',
+    ctaStart: '#2D6CDF',
+    ctaEnd: '#1F5AC9',
     warmStart: '#FFFFFF',
-    warmEnd: '#F8FAFC',
+    warmEnd: '#F1F5FA',
   },
 };
 
@@ -102,9 +110,9 @@ export const FontWeight = {
 export const BorderRadius = {
   xs: 4,
   sm: 8,
-  md: 12,
-  lg: 18,
-  xl: 24,
+  md: 14,
+  lg: 20,
+  xl: 28,
   full: 999,
 };
 
@@ -113,24 +121,24 @@ export const BorderRadius = {
  */
 export const Shadow = {
   sm: {
-    shadowColor: '#1A1D2110',
+    shadowColor: '#10243F12',
     shadowOpacity: 1,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
   md: {
-    shadowColor: '#1A1D2118',
+    shadowColor: '#10243F1A',
     shadowOpacity: 1,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
     elevation: 3,
   },
   lg: {
-    shadowColor: '#1A1D2120',
+    shadowColor: '#10243F22',
     shadowOpacity: 1,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 10 },
     elevation: 6,
   },
   colored: (color: string) => ({
