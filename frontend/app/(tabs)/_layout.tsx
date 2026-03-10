@@ -2,14 +2,21 @@
  * Tab 导航布局 — 对齐 Stitch 设计稿
  * 底部 4 Tab：Plan / Guides / Radar / Profile
  * 半透明毛玻璃底栏 + primary/10 色圈
+ * 适配全面屏手机底部安全区（手势导航横条）
  */
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { View, StyleSheet, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, FontWeight, Spacing, BorderRadius, Shadow } from '@/constants/Theme';
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets();
+  // 确保底部 padding 至少覆盖安全区，全面屏手机手势横条通常是 20-34pt
+  const bottomPadding = Math.max(insets.bottom, Platform.select({ ios: 24, android: 12 }) ?? 12);
+  const tabBarHeight = 56 + bottomPadding;
+
   return (
     <Tabs
       screenOptions={{
@@ -20,8 +27,8 @@ export default function TabLayout() {
           backgroundColor: Colors.tab.bg,
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: Colors.tab.border,
-          height: Platform.select({ ios: 78, android: 64 }),
-          paddingBottom: Platform.select({ ios: 24, android: 6 }),
+          height: tabBarHeight,
+          paddingBottom: bottomPadding,
           paddingTop: 8,
         },
         tabBarItemStyle: {

@@ -117,41 +117,73 @@ export default function ProfileScreen() {
       const id = await getDeviceId();
       setDeviceId(id);
 
-      const [profileRes, statsRes, prefsRes, itinsRes] = await Promise.all([
+      // 使用 allSettled 代替 all，避免单个 API 失败导致整页崩溃
+      const [profileResult, statsResult, prefsResult, itinsResult] = await Promise.allSettled([
         fetchProfile(id),
         fetchProfileStats(id),
         fetchPreferences(id),
         fetchSavedItineraries(id),
       ]);
 
-      setProfile(profileRes.profile);
-      setStats(statsRes.stats);
-      setPreferences(prefsRes.preferences);
-      setItineraries(itinsRes.itineraries);
+      // 至少需要 profile 接口成功，其余可降级
+      if (profileResult.status === 'fulfilled') {
+        const profileRes = profileResult.value;
+        setProfile(profileRes.profile);
+        setEditName(profileRes.profile.name || '');
+        setEditTagline(profileRes.profile.tagline || '');
+        setEditEmail(profileRes.profile.email || '');
+        setEditCountries(String(profileRes.profile.countries_visited || 0));
 
-      // 初始化编辑数据
-      setEditName(profileRes.profile.name || '');
-      setEditTagline(profileRes.profile.tagline || '');
-      setEditEmail(profileRes.profile.email || '');
-      setEditCountries(String(profileRes.profile.countries_visited || 0));
-
-      // 同步语言设置
-      if (prefsRes.preferences.language === 'zh' || prefsRes.preferences.language === 'en') {
-        setLocale(prefsRes.preferences.language as 'zh' | 'en');
-      }
-
-      // 同步主题设置
-      setMode(prefsRes.preferences.dark_mode ? 'dark' : 'light');
-
-      if (profileRes.profile.email) {
-        try {
-          const alertsRes = await fetchPriceAlerts(profileRes.profile.email);
-          setAlerts(alertsRes.alerts);
-        } catch {
+        // 加载价格提醒（非关键路径）
+        if (profileRes.profile.email) {
+          try {
+            const alertsRes = await fetchPriceAlerts(profileRes.profile.email);
+            setAlerts(alertsRes.alerts);
+          } catch {
+            setAlerts([]);
+          }
+        } else {
           setAlerts([]);
         }
       } else {
+        // profile 也失败了，设置默认值让页面仍可展示
+        console.warn('Profile API failed, using defaults:', profileResult.reason);
+        setProfile({
+          device_id: id,
+          name: 'Traveler',
+          tagline: 'Travel Enthusiast',
+          avatar_url: '',
+          email: '',
+          countries_visited: 0,
+          created_at: new Date().toISOString(),
+        } as any);
         setAlerts([]);
+      }
+
+      if (statsResult.status === 'fulfilled') {
+        setStats(statsResult.value.stats);
+      } else {
+        console.warn('Stats API failed, using defaults');
+        setStats({ trips: 0, saved: 0, reviews: 0 } as any);
+      }
+
+      if (prefsResult.status === 'fulfilled') {
+        const prefsRes = prefsResult.value;
+        setPreferences(prefsRes.preferences);
+        if (prefsRes.preferences.language === 'zh' || prefsRes.preferences.language === 'en') {
+          setLocale(prefsRes.preferences.language as 'zh' | 'en');
+        }
+        setMode(prefsRes.preferences.dark_mode ? 'dark' : 'light');
+      } else {
+        console.warn('Preferences API failed, using defaults');
+        setPreferences({ dark_mode: false, language: 'en', currency: 'USD' } as any);
+      }
+
+      if (itinsResult.status === 'fulfilled') {
+        setItineraries(itinsResult.value.itineraries);
+      } else {
+        console.warn('Itineraries API failed, using defaults');
+        setItineraries([]);
       }
 
       setViewState('idle');
@@ -382,6 +414,13 @@ export default function ProfileScreen() {
         <View style={themedStyles.centerContent}>
           <Ionicons name="alert-circle-outline" size={48} color={colors.error} />
           <Text style={themedStyles.errorText}>{t('common.error')}</Text>
+          <TouchableOpacity
+            style={{ marginTop: Spacing.md, backgroundColor: colors.primary, borderRadius: BorderRadius.full, paddingHorizontal: Spacing.xxl, paddingVertical: Spacing.md }}
+            onPress={() => loadData()}>
+            <Text style={{ color: colors.textOnPrimary, fontWeight: FontWeight.semibold, fontSize: FontSize.md }}>
+              {t('common.retry') || 'Retry'}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
     );

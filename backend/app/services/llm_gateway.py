@@ -1,7 +1,7 @@
 """LLM Gateway – multi-provider routing with provider/model-level degradation.
 
 Optimized degradation chain:
-  1. ShowQR gateway (primary): qwen3-235b-a22b-instruct → deepseek-v3.1 → deepseek-v3.2
+  1. ShowQR gateway (primary): gemini-3-flash (~13s) → gpt-5.2 (fallback)
   2. SiliconFlow (保底): Qwen2.5-72B-Instruct → DeepSeek-V3 → DeepSeek-R1
   3. NVIDIA NIM (last resort): z-ai/glm4.7
 

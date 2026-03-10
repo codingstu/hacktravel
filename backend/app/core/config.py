@@ -30,11 +30,11 @@ class Settings(BaseSettings):
     CACHE_TTL_COLD: int = 259200  # 3 days for cold destinations
 
     # ── LLM Providers ────────────────────────────────────
-    # Primary: ShowQR gateway — tested fastest models, fail fast on timeout
+    # Primary: ShowQR gateway — gpt-5.2 confirmed fastest & most reliable
     LLM_PRIMARY_BASE_URL: str = "https://openai.showqr.eu.cc/v1"
     LLM_PRIMARY_API_KEY: str = ""
-    LLM_PRIMARY_MODEL: str = "qwen3-235b-a22b-instruct"
-    LLM_PRIMARY_FALLBACK_MODELS: str = "deepseek-v3.1,deepseek-v3.2"
+    LLM_PRIMARY_MODEL: str = "gemini-3-flash"
+    LLM_PRIMARY_FALLBACK_MODELS: str = "gpt-5.2"
     LLM_PRIMARY_TIMEOUT: int = 35
     LLM_PRIMARY_REASONING_EFFORT: str = ""
     LLM_PRIMARY_MAX_COMPLETION_TOKENS: int = 0
