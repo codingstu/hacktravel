@@ -100,4 +100,4 @@ fix(profile+plan): Vercel SPA 404/收藏计数同步/AI加载UI轮播优化
 - i18n: modelTimeout/allModelsFailed 改为更友好的引导文案
 ```
 
-commit: <!-- backfill after push -->
+commit: `bf30347` → main
