@@ -358,6 +358,7 @@ class LLMGateway:
         payload = {
             "model": provider.model,
             "temperature": settings.LLM_TEMPERATURE,
+            "stream": False,  # 关键！强制非流式，否则 showqr 网关默认返回 SSE 导致 ReadTimeout
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},

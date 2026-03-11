@@ -51,13 +51,13 @@ class Settings(BaseSettings):
     # Second backup: SiliconFlow (保底 — reliable domestic provider)
     LLM_BACKUP2_BASE_URL: str = "https://api.siliconflow.cn/v1"
     LLM_BACKUP2_API_KEY: str = ""
-    LLM_BACKUP2_MODEL: str = "Qwen/Qwen2.5-72B-Instruct"
+    LLM_BACKUP2_MODEL: str = "Qwen/Qwen2.5-7B-Instruct"
     LLM_BACKUP2_FALLBACK_MODELS: str = ""  # 移除 DeepSeek 兜底，控制链路总时长
-    LLM_BACKUP2_TIMEOUT: int = 18  # 18s: SiliconFlow 实际推理稍慢
+    LLM_BACKUP2_TIMEOUT: int = 15  # 7B 模型速度很快，无需 18s
 
     # 全链路硬上限：所有 provider 累计不超过此时间，超时返回 504
-    # 3 providers × 最长 18s = 54s，设 50s 保留 5s 网络余量
-    LLM_TOTAL_TIMEOUT: int = 50
+    # 2 有效 providers × 最长 15s = 30s，硬上限 30s
+    LLM_TOTAL_TIMEOUT: int = 30
 
     LLM_TEMPERATURE: float = 0.2
 

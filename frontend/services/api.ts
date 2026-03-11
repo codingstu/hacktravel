@@ -83,7 +83,7 @@ const getBaseUrl = (): string => {
 };
 
 const BASE_URL = getBaseUrl();
-const TIMEOUT_MS = 75_000; // 前端总超时 75s，比后端硬上限 50s 多 25s 网络余量
+const TIMEOUT_MS = 45_000; // 前端总超时 45s，后端硬上限 30s + 15s 网络余量
 
 // 开发时打印 API 地址，方便排查连接问题
 if (__DEV__) {
