@@ -13,6 +13,7 @@ Fallback: if all LLM providers fail, try reading historical cache.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any
@@ -20,6 +21,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.core.config import settings
+from app.core.exceptions import ModelTimeoutError
 from app.models.itinerary import (
     Currency,
     ItineraryGenerateRequest,
@@ -104,17 +106,33 @@ class ItineraryService:
             await self.cache.set_idempotency(req.idempotency_key, response.model_dump())
             return response
 
-        # 3. LLM call with failover
+        # 3. LLM call with failover — hard-capped by LLM_TOTAL_TIMEOUT so
+        #    the backend always returns a proper error code before the frontend
+        #    AbortController fires (frontend timeout = LLM_TOTAL_TIMEOUT + 25s margin).
         try:
-            llm_result = await self.llm.generate(
-                origin=req.origin,
-                destination=req.destination,
-                total_hours=req.total_hours,
-                budget_amount=req.budget.amount,
-                budget_currency=req.budget.currency.value,
-                tags=req.tags,
-                locale=req.locale,
-                timezone=req.timezone,
+            llm_result = await asyncio.wait_for(
+                self.llm.generate(
+                    origin=req.origin,
+                    destination=req.destination,
+                    total_hours=req.total_hours,
+                    budget_amount=req.budget.amount,
+                    budget_currency=req.budget.currency.value,
+                    tags=req.tags,
+                    locale=req.locale,
+                    timezone=req.timezone,
+                ),
+                timeout=settings.LLM_TOTAL_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                "[%s] LLM chain exceeded total timeout (%ds), attempting cache fallback",
+                request_id, settings.LLM_TOTAL_TIMEOUT,
+            )
+            if cached_itinerary := await self.cache.get_cached_itinerary(query_hash):
+                return self._build_response_from_cache(cached_itinerary, request_id)
+            raise ModelTimeoutError(
+                message=f"AI 生成超时（总限制 {settings.LLM_TOTAL_TIMEOUT}s），请稍后重试",
+                request_id=request_id,
             )
         except RuntimeError:
             # All providers failed – try historical cache fallback
