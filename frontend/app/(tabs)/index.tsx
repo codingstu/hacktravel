@@ -30,6 +30,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams } from 'expo-router';
 import {
   DEFAULT_CONTINENT,
   inferContinentFromCoordinates,
@@ -147,6 +148,9 @@ function filterCities(text: string, limit = 6): string[] {
 }
 
 export default function GenerateScreen() {
+  // ── URL 参数（从 Profile 页跳转时传入） ──
+  const params = useLocalSearchParams<{ destination?: string }>();
+
   // ── Form ──
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
@@ -159,6 +163,13 @@ export default function GenerateScreen() {
   const [regionMeta, setRegionMeta] = useState<RegionMeta[]>(REGION_METADATA_FALLBACK);
   const [featuredSubRegions, setFeaturedSubRegions] = useState<FeaturedSubRegion[]>(FEATURED_SUB_REGIONS_FALLBACK);
   const [regionLoading, setRegionLoading] = useState(true);
+
+  // ── 从 Profile 页跳转时自动填入目的地 ──
+  useEffect(() => {
+    if (params.destination && params.destination.trim()) {
+      setDestination(params.destination.trim());
+    }
+  }, [params.destination]);
 
   // ── Autocomplete ──
   const [originFocused, setOriginFocused] = useState(false);

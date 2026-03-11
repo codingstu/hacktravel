@@ -192,6 +192,11 @@ const zh: TranslationDict = {
   'profile.saveItinerary': '保存行程',
   'profile.savedToast': '已保存到我的行程',
   'profile.saveFail': '保存失败，请重试',
+  'profile.removedToast': '已取消收藏',
+  'profile.itineraryDetail': '行程详情',
+  'profile.planAgain': '重新规划此路线',
+  'profile.destination': '目的地',
+  'profile.savedAt': '收藏时间',
 
   // ── Watchlist 页 (watchlist.tsx) ──
   'radar.scanning': '正在扫描',
@@ -382,6 +387,11 @@ const en: TranslationDict = {
   'profile.saveItinerary': 'Save itinerary',
   'profile.savedToast': 'Saved to My Trips',
   'profile.saveFail': 'Save failed. Please retry',
+  'profile.removedToast': 'Removed from saved',
+  'profile.itineraryDetail': 'Itinerary Detail',
+  'profile.planAgain': 'Plan This Route Again',
+  'profile.destination': 'Destination',
+  'profile.savedAt': 'Saved at',
 
   // ── Watchlist 页 (watchlist.tsx) ──
   'radar.scanning': 'Scanning',

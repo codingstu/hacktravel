@@ -31,6 +31,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import { useFocusEffect } from 'expo-router';
+import { useRouter } from 'expo-router';
 import {
   Colors,
   Spacing,
@@ -84,6 +86,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
   const { colors, setMode } = useThemeMode();
+  const router = useRouter();
 
   const [viewState, setViewState] = useState<ViewState>('loading');
   const [refreshing, setRefreshing] = useState(false);
@@ -101,6 +104,17 @@ export default function ProfileScreen() {
   const [currencyVisible, setCurrencyVisible] = useState(false);
   const [logoutVisible, setLogoutVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+
+  // ── 行程详情 Modal ──
+  const [detailVisible, setDetailVisible] = useState(false);
+  const [detailItinerary, setDetailItinerary] = useState<SavedItinerary | null>(null);
+
+  // ── 统计Tab ──
+  const [activeStatTab, setActiveStatTab] = useState<'trips' | 'saved' | 'reviews'>('saved');
+
+  // section refs 用于滚动定位
+  const savedSectionRef = useRef<View>(null);
+  const savedSectionY = useRef(0);
 
   // ── 编辑资料状态 ──
   const [editVisible, setEditVisible] = useState(false);
@@ -195,9 +209,12 @@ export default function ProfileScreen() {
     }
   }, [setMode]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  // ── 每次 Tab 获得焦点时刷新数据（修复从 Plan 页保存行程后切到 Profile 不刷新的问题）──
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
   useEffect(() => {
     if (!toastMessage) return;
@@ -327,6 +344,28 @@ export default function ProfileScreen() {
     setManageVisible(true);
   }, []);
 
+  // ── 点击行程卡片展示详情 ──
+  const handlePressItinerary = useCallback((itinerary: SavedItinerary) => {
+    setDetailItinerary(itinerary);
+    setDetailVisible(true);
+  }, []);
+
+  // ── 从详情跳回 Plan 页重新规划 ──
+  const handlePlanAgain = useCallback((destination: string) => {
+    setDetailVisible(false);
+    // 使用 router 跳转到 Plan 页并传参
+    router.push({ pathname: '/(tabs)', params: { destination } });
+  }, [router]);
+
+  // ── 统计 Tab 点击 ──
+  const handleStatTabPress = useCallback((tab: 'trips' | 'saved' | 'reviews') => {
+    setActiveStatTab(tab);
+    // 滚动到已保存行程区块（saved tab 最常用）
+    if (tab === 'saved' && scrollRef.current) {
+      scrollRef.current.scrollTo({ y: savedSectionY.current, animated: true });
+    }
+  }, []);
+
   const handleLanguageSelect = useCallback(() => {
     setLanguageVisible(true);
   }, []);
@@ -378,23 +417,15 @@ export default function ProfileScreen() {
     }
   }, [deviceId, setMode]);
 
-  const handleDeleteItinerary = useCallback((id: string) => {
-    Alert.alert(t('common.delete'), t('profile.deleteConfirm'), [
-      { text: t('plan.cancel'), style: 'cancel' },
-      {
-        text: t('common.delete'),
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteSavedItinerary(deviceId, id);
-            setItineraries(prev => prev.filter(i => i.itinerary_id !== id));
-            setStats(prev => prev ? { ...prev, saved: Math.max(0, prev.saved - 1) } : null);
-          } catch (e) {
-            Alert.alert(t('common.error'));
-          }
-        },
-      },
-    ]);
+  const handleDeleteItinerary = useCallback(async (id: string) => {
+    try {
+      await deleteSavedItinerary(deviceId, id);
+      setItineraries(prev => prev.filter(i => i.itinerary_id !== id));
+      setStats(prev => prev ? { ...prev, saved: Math.max(0, prev.saved - 1) } : null);
+      setToastMessage(t('profile.removedToast'));
+    } catch (e) {
+      setToastMessage(t('common.error'));
+    }
   }, [deviceId]);
 
   // ── 空态 / 加载态 / 错误态 ──
@@ -478,20 +509,44 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* ── 统计数据栏 ── */}
+        {/* ── 统计数据栏（可点击） ── */}
         <View style={themedStyles.statsRow}>
-          <View style={themedStyles.statItem}>
-            <Text style={themedStyles.statNumber}>{stats?.trips || 0}</Text>
-            <Text style={themedStyles.statLabel}>{t('profile.trips')}</Text>
-          </View>
-          <View style={themedStyles.statItem}>
-            <Text style={themedStyles.statNumber}>{stats?.saved || 0}</Text>
-            <Text style={themedStyles.statLabel}>{t('profile.saved')}</Text>
-          </View>
-          <View style={themedStyles.statItem}>
-            <Text style={themedStyles.statNumber}>{stats?.reviews || 0}</Text>
-            <Text style={themedStyles.statLabel}>{t('profile.reviews')}</Text>
-          </View>
+          <TouchableOpacity
+            style={[themedStyles.statItem, activeStatTab === 'trips' && themedStyles.statItemActive]}
+            onPress={() => handleStatTabPress('trips')}
+            activeOpacity={0.7}
+          >
+            <Text style={[themedStyles.statNumber, activeStatTab === 'trips' && themedStyles.statNumberActive]}>
+              {stats?.trips || 0}
+            </Text>
+            <Text style={[themedStyles.statLabel, activeStatTab === 'trips' && themedStyles.statLabelActive]}>
+              {t('profile.trips')}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[themedStyles.statItem, activeStatTab === 'saved' && themedStyles.statItemActive]}
+            onPress={() => handleStatTabPress('saved')}
+            activeOpacity={0.7}
+          >
+            <Text style={[themedStyles.statNumber, activeStatTab === 'saved' && themedStyles.statNumberActive]}>
+              {stats?.saved || 0}
+            </Text>
+            <Text style={[themedStyles.statLabel, activeStatTab === 'saved' && themedStyles.statLabelActive]}>
+              {t('profile.saved')}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[themedStyles.statItem, activeStatTab === 'reviews' && themedStyles.statItemActive]}
+            onPress={() => handleStatTabPress('reviews')}
+            activeOpacity={0.7}
+          >
+            <Text style={[themedStyles.statNumber, activeStatTab === 'reviews' && themedStyles.statNumberActive]}>
+              {stats?.reviews || 0}
+            </Text>
+            <Text style={[themedStyles.statLabel, activeStatTab === 'reviews' && themedStyles.statLabelActive]}>
+              {t('profile.reviews')}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* ── Active Price Alerts ── */}
@@ -533,7 +588,11 @@ export default function ProfileScreen() {
         )}
 
         {/* ── Saved Itineraries ── */}
-        <View style={themedStyles.sectionHeader}>
+        <View
+          style={themedStyles.sectionHeader}
+          ref={savedSectionRef}
+          onLayout={(e) => { savedSectionY.current = e.nativeEvent.layout.y; }}
+        >
           <Text style={themedStyles.sectionTitle}>{t('profile.savedItineraries')}</Text>
           <TouchableOpacity onPress={handleManageItineraries}>
             <Text style={themedStyles.sectionAction}>{t('profile.manage')}</Text>
@@ -545,7 +604,12 @@ export default function ProfileScreen() {
           </Text>
         ) : (
           itineraries.map(itinerary => (
-            <View key={itinerary.itinerary_id} style={[themedStyles.itineraryCard, Shadow.sm]}>
+            <TouchableOpacity
+              key={itinerary.itinerary_id}
+              style={[themedStyles.itineraryCard, Shadow.sm]}
+              activeOpacity={0.8}
+              onPress={() => handlePressItinerary(itinerary)}
+            >
               <Image
                 source={{ uri: itinerary.cover_image || getDestinationImage(itinerary.destination, 800, 400) }}
                 style={themedStyles.itineraryImage}
@@ -562,7 +626,7 @@ export default function ProfileScreen() {
                   {itinerary.stops} {t('profile.stops')} • {itinerary.days} {t('profile.days')}
                 </Text>
               </View>
-            </View>
+            </TouchableOpacity>
           ))
         )}
 
@@ -800,6 +864,52 @@ export default function ProfileScreen() {
           </View>
         </View>
       )}
+
+      {/* ── 行程详情 Modal ── */}
+      {detailVisible && detailItinerary && (
+        <Modal transparent visible={detailVisible} animationType="slide">
+          <View style={themedStyles.modalOverlay}>
+            <View style={themedStyles.modalCardLarge}>
+              {/* 封面图 */}
+              <Image
+                source={{ uri: detailItinerary.cover_image || getDestinationImage(detailItinerary.destination, 800, 400) }}
+                style={themedStyles.detailCoverImage}
+              />
+              <Text style={themedStyles.modalTitle}>{detailItinerary.title}</Text>
+              <View style={themedStyles.detailMetaRow}>
+                <View style={themedStyles.detailMetaItem}>
+                  <Ionicons name="location-outline" size={16} color={colors.primary} />
+                  <Text style={themedStyles.detailMetaText}>{detailItinerary.destination}</Text>
+                </View>
+                <View style={themedStyles.detailMetaItem}>
+                  <Ionicons name="flag-outline" size={16} color={colors.primary} />
+                  <Text style={themedStyles.detailMetaText}>{detailItinerary.stops} {t('profile.stops')}</Text>
+                </View>
+                <View style={themedStyles.detailMetaItem}>
+                  <Ionicons name="calendar-outline" size={16} color={colors.primary} />
+                  <Text style={themedStyles.detailMetaText}>{detailItinerary.days} {t('profile.days')}</Text>
+                </View>
+              </View>
+              {detailItinerary.saved_at && (
+                <Text style={themedStyles.detailSavedAt}>
+                  {t('profile.savedAt')}: {new Date(detailItinerary.saved_at).toLocaleDateString()}
+                </Text>
+              )}
+              {/* 重新规划按钮 */}
+              <TouchableOpacity
+                style={themedStyles.planAgainBtn}
+                onPress={() => handlePlanAgain(detailItinerary.destination)}
+              >
+                <Ionicons name="sparkles" size={18} color="#fff" />
+                <Text style={themedStyles.planAgainText}>{t('profile.planAgain')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={themedStyles.modalCancel} onPress={() => setDetailVisible(false)}>
+                <Text style={themedStyles.modalCancelText}>{t('common.close')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -930,10 +1040,18 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   statItem: {
     alignItems: 'center',
     flex: 1,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.lg,
+  },
+  statItemActive: {
+    backgroundColor: colors.primaryLight,
   },
   statNumber: {
     fontSize: FontSize.xxl,
     fontWeight: FontWeight.bold,
+    color: colors.primary,
+  },
+  statNumberActive: {
     color: colors.primary,
   },
   statLabel: {
@@ -943,6 +1061,9 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     letterSpacing: 0.8,
     textTransform: 'uppercase',
     marginTop: Spacing.xs,
+  },
+  statLabelActive: {
+    color: colors.primary,
   },
 
   /* ── Section Header ── */
@@ -1197,5 +1318,51 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   toastText: {
     color: colors.textOnPrimary,
     fontSize: FontSize.sm,
+  },
+
+  /* ── Itinerary Detail Modal ── */
+  detailCoverImage: {
+    width: '100%',
+    height: 160,
+    borderRadius: BorderRadius.lg,
+    marginBottom: Spacing.md,
+    backgroundColor: colors.tag.bg,
+  },
+  detailMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginVertical: Spacing.md,
+  },
+  detailMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  detailMetaText: {
+    fontSize: FontSize.sm,
+    color: colors.textSecondary,
+    fontWeight: FontWeight.medium,
+  },
+  detailSavedAt: {
+    fontSize: FontSize.sm,
+    color: colors.textLight,
+    textAlign: 'center',
+    marginBottom: Spacing.md,
+  },
+  planAgainBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    backgroundColor: colors.primary,
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.md,
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  planAgainText: {
+    color: colors.textOnPrimary,
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.semibold,
   },
 });
