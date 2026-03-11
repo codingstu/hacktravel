@@ -155,6 +155,19 @@ async function fetchWithTimeout(
       ...options,
       signal: controller.signal,
     });
+    // 拦截非 JSON 响应（如 HTML 404/502 页面），给出可读的错误提示
+    const originalJson = response.json.bind(response);
+    response.json = async () => {
+      const ct = response.headers.get('content-type') ?? '';
+      if (!ct.includes('application/json')) {
+        const text = await response.text();
+        if (__DEV__) {
+          console.error(`[HackTravel API] Expected JSON but got (${ct}):`, text.slice(0, 200));
+        }
+        throw new Error(`后端服务未就绪或地址不正确（HTTP ${response.status}），请先部署后端并确认 API 地址`);
+      }
+      return originalJson();
+    };
     return response;
   } catch (err: any) {
     // 区分超时 vs 网络不可达
