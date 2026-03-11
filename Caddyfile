@@ -1,0 +1,23 @@
+{
+  # 可选：为 ACME 账户指定邮箱，便于证书到期/异常通知
+  # email you@example.com
+}
+
+api.hacktravel.app {
+  encode gzip
+
+  # 后端 FastAPI 容器在同一个 Docker 网络内，通过 service name 访问
+  reverse_proxy api:8000
+
+  # 基础安全头（保持最小化，避免影响业务）
+  header {
+    -Server
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "no-referrer-when-downgrade"
+  }
+
+  log {
+    output stdout
+    format console
+  }
+}

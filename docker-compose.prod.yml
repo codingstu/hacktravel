@@ -1,0 +1,35 @@
+services:
+  api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    env_file:
+      # 生产环境：在 VPS 上创建 ./backend/.env.prod（不要提交到仓库）
+      - ./backend/.env.prod
+    expose:
+      # 仅在 Docker 网络内暴露，禁止直接映射到公网
+      - "8000"
+    networks:
+      - web
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - web
+
+networks:
+  web:
+
+volumes:
+  caddy_data:
+  caddy_config:
