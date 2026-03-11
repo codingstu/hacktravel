@@ -77,8 +77,9 @@ const getBaseUrl = (): string => {
     // 兜底（仅 iOS 模拟器生效）
     return 'http://localhost:8001';
   }
-  // 生产环境
-  return 'https://api.hacktravel.app';
+  // 生产环境：优先读取 EXPO_PUBLIC_API_URL 环境变量（在 Vercel 控制台配置）
+  // 兜底硬编码，避免未配置时 404
+  return process.env.EXPO_PUBLIC_API_URL ?? 'https://api.hacktravel.app';
 };
 
 const BASE_URL = getBaseUrl();
