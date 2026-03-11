@@ -108,12 +108,16 @@ const ACTIVITY_ICON_MAP: Record<string, { name: string; color: string }> = {
 
 /** 随机加载文案 key — 仅在 AI 生成时展示 */
 const LOADING_QUIP_KEYS = [
+  'plan.loadingDefault',
   'plan.noPresetAI',
   'plan.searchBest',
   'plan.smartBudget',
   'plan.comfortPlan',
   'plan.everyMinute',
   'plan.perfectRoute',
+  'plan.askingLocal',
+  'plan.balancingTime',
+  'plan.optimizing',
 ];
 
 /** 全局城市库用于自动补全 — 涵盖所有预置目的地 + 常见出发城市 */
@@ -224,6 +228,30 @@ export default function GenerateScreen() {
   const [newLegType, setNewLegType] = useState<string>('attraction');
 
   const scrollRef = useRef<ScrollView>(null);
+  const quipTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const quipIdxRef = useRef(0);
+
+  // 轮播加载文案：viewState === 'loading' 时每 3.5s 切换一条
+  useEffect(() => {
+    if (viewState === 'loading') {
+      quipIdxRef.current = 0;
+      quipTimerRef.current = setInterval(() => {
+        quipIdxRef.current = (quipIdxRef.current + 1) % LOADING_QUIP_KEYS.length;
+        setLoadingQuip(t(LOADING_QUIP_KEYS[quipIdxRef.current]));
+      }, 3500);
+    } else {
+      if (quipTimerRef.current) {
+        clearInterval(quipTimerRef.current);
+        quipTimerRef.current = null;
+      }
+    }
+    return () => {
+      if (quipTimerRef.current) {
+        clearInterval(quipTimerRef.current);
+        quipTimerRef.current = null;
+      }
+    };
+  }, [viewState]);
 
   // ── 地点详情 Modal ──
   const [placeModalVisible, setPlaceModalVisible] = useState(false);
@@ -316,10 +344,7 @@ export default function GenerateScreen() {
     }
     setViewState('loading');
     setErrorMsg('');
-    setLoadingQuip(
-      t(LOADING_QUIP_KEYS[Math.floor(Math.random() * LOADING_QUIP_KEYS.length)]),
-    );
-
+    setLoadingQuip(t('plan.loadingDefault'));
     try {
       const resp = await generateItinerary({
         origin: origin.trim() || t('plan.fromPlaceholder'),
@@ -430,7 +455,7 @@ export default function GenerateScreen() {
       setViewState('success');
       setTimeout(() => scrollRef.current?.scrollTo({ y: 400, animated: true }), 300);
     } catch (err) {
-      if (err instanceof ApiError) setErrorMsg(`${err.code}: ${err.message}`);
+      if (err instanceof ApiError) setErrorMsg(friendlyApiError(err));
       else if (err instanceof Error)
         setErrorMsg(err.name === 'AbortError' ? t('plan.modelTimeout') : err.message);
       else setErrorMsg(t('plan.unknownError'));

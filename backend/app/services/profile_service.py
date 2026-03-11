@@ -139,7 +139,12 @@ class ProfileService:
     # ── Stats ─────────────────────────────────────────────
 
     async def get_stats(self, device_id: str) -> dict:
-        """Get user stats."""
+        """Get user stats.
+
+        `saved` is always derived from the real itinerary ZSET size to stay
+        in sync even if the counter diverged (e.g. duplicate saves, race
+        conditions, or manual Redis edits).
+        """
         device_hash = _hash_device(device_id)
         stats_key = _KEY_STATS.format(device_hash)
 
@@ -149,9 +154,16 @@ class ProfileService:
             await self.get_profile(device_id)
             data = await self.redis.hgetall(stats_key)
 
+        # Compute saved from real itinerary ZSET — source of truth
+        itin_list_key = _KEY_ITINERARIES.format(device_hash)
+        real_saved = await self.redis.zcard(itin_list_key)
+
+        # Auto-correct stored counter so future deletes stay accurate
+        await self.redis.hset(stats_key, "saved", str(real_saved))
+
         return {
             "trips": int(data.get("trips", 0)),
-            "saved": int(data.get("saved", 0)),
+            "saved": real_saved,
             "reviews": int(data.get("reviews", 0)),
         }
 
@@ -232,6 +244,15 @@ class ProfileService:
                 "success": False,
                 "message": f"最多保存 {MAX_SAVED_ITINERARIES} 条行程",
                 "itinerary_id": "",
+            }
+
+        # Detect duplicate: itinerary_id already in user's list
+        already_saved = await self.redis.zscore(itin_list_key, itinerary_id)
+        if already_saved is not None:
+            return {
+                "success": True,
+                "message": "行程已在收藏中",
+                "itinerary_id": itinerary_id,
             }
 
         now = datetime.now(timezone.utc)
