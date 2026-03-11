@@ -92,7 +92,7 @@ Plan 页（`index.tsx`）通过 `useLocalSearchParams<{ destination?: string }>(
 
 ## 7. 对应提交记录
 
-_commit hash 将在提交后回填_
+`7bf0c58` — fix(profile): 行程焦点刷新/取消收藏直删/行程详情Modal/统计Tab交互/Web硬刷新404
 
 事实依据来源：
 - `frontend/app/(tabs)/profile.tsx`（`useFocusEffect` 替换、`handleDeleteItinerary` 简化、`handlePressItinerary`、`handleStatTabPress` 新增、详情 Modal JSX）
