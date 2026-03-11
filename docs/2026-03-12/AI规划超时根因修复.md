@@ -110,4 +110,4 @@ httpx.post()等待完整body→ReadTimeout，所有provider连锁失败。
 优化: SiliconFlow 72B→7B(2.5s)，全链路硬上限50→30s
 ```
 
-commit: <!-- backfill after push -->
+commit: `ca24d61` → main
