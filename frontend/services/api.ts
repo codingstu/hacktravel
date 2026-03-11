@@ -79,7 +79,7 @@ const getBaseUrl = (): string => {
   }
   // 生产环境：优先读取 EXPO_PUBLIC_API_URL 环境变量（在 Vercel 控制台配置）
   // 兜底硬编码，避免未配置时 404
-  return process.env.EXPO_PUBLIC_API_URL ?? 'https://api.hacktravel.app';
+  return process.env.EXPO_PUBLIC_API_URL ?? 'https://travel.offer.cc.cd';
 };
 
 const BASE_URL = getBaseUrl();

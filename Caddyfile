@@ -3,7 +3,7 @@
   # email you@example.com
 }
 
-api.hacktravel.app {
+travel.offer.cc.cd {
   encode gzip
 
   # 后端 FastAPI 容器在同一个 Docker 网络内，通过 service name 访问
