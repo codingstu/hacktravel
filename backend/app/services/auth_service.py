@@ -7,10 +7,12 @@ Redis keys:
 - hkt:auth:social:{provider}:{token_hash} → STRING (user_id)
 - hkt:auth:token:{token}        → STRING (user_id) session token
 - hkt:auth:sms:{phone_hash}     → STRING (code) 验证码（5分钟过期）
+- hkt:auth:email_code:{email_hash} → STRING (code) 邮箱验证码（5分钟过期）
 - hkt:auth:usage:{device_hash}  → STRING (count) 匿名AI使用次数
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import secrets
@@ -18,6 +20,9 @@ import string
 import time
 import uuid
 from typing import Optional
+
+import smtplib
+from email.message import EmailMessage
 
 import redis.asyncio as aioredis
 
@@ -32,6 +37,7 @@ _KEY_PHONE = "hkt:auth:phone:{}"
 _KEY_SOCIAL = "hkt:auth:social:{}:{}"
 _KEY_TOKEN = "hkt:auth:token:{}"
 _KEY_SMS = "hkt:auth:sms:{}"
+_KEY_EMAIL_CODE = "hkt:auth:email_code:{}"
 _KEY_USAGE = "hkt:auth:usage:{}"
 
 TOKEN_TTL = 30 * 86400  # 30 days
@@ -82,10 +88,12 @@ class AuthService:
         self,
         name: str,
         email: Optional[str] = None,
+        email_code: Optional[str] = None,
         phone: Optional[str] = None,
         country_code: Optional[str] = None,
         password: Optional[str] = None,
         device_id: Optional[str] = None,
+        skip_auto_password: bool = False,
     ) -> tuple[dict, str, str | None]:
         """注册用户。返回 (user_data, token, auto_password)。
         如果是邮箱注册且未设置密码，自动生成密码。"""
@@ -103,8 +111,15 @@ class AuthService:
             if existing:
                 raise HKTError(409, "HKT_409_PHONE_EXISTS", "该手机号已注册")
 
+        if email and email_code:
+            if not settings.ENABLE_EMAIL_CODE_LOGIN:
+                raise HKTError(403, "HKT_403_EMAIL_CODE_DISABLED", "邮箱验证码登录未开启")
+            verified = await self.verify_email_code(email, email_code)
+            if not verified:
+                raise HKTError(401, "HKT_401_INVALID_CODE", "验证码不正确或已过期")
+
         # 生成密码
-        if email and not password:
+        if email and not password and not email_code and not skip_auto_password:
             auto_password = _generate_password()
             password = auto_password
 
@@ -161,6 +176,32 @@ class AuthService:
 
         logger.info("Email login for user %s", user_id[:8])
         return user_data, token
+
+    async def login_email_code(self, email: str, code: str) -> tuple[dict, str, bool]:
+        """邮箱验证码登录（未注册则自动注册）"""
+        if not settings.ENABLE_EMAIL_CODE_LOGIN:
+            raise HKTError(403, "HKT_403_EMAIL_CODE_DISABLED", "邮箱验证码登录未开启")
+
+        verified = await self.verify_email_code(email, code)
+        if not verified:
+            raise HKTError(401, "HKT_401_INVALID_CODE", "验证码不正确或已过期")
+
+        email_hash = _hash(email)
+        user_id = await self.redis.get(_KEY_EMAIL.format(email_hash))
+        if user_id:
+            user_data = await self.redis.hgetall(_KEY_USER.format(user_id))
+            token = _generate_token()
+            await self.redis.set(_KEY_TOKEN.format(token), user_id, ex=TOKEN_TTL)
+            return user_data, token, False
+
+        name = email.split("@")[0] if "@" in email else "Traveler"
+        user_data, token, _ = await self.register(
+            name=name,
+            email=email,
+            email_code=None,
+            skip_auto_password=True,
+        )
+        return user_data, token, True
 
     async def login_phone(self, phone: str, country_code: str, sms_code: str) -> tuple[dict, str]:
         """手机验证码登录（如果未注册则自动注册）"""
@@ -258,6 +299,47 @@ class AuthService:
         await self.redis.set(_KEY_SMS.format(phone_hash), code, ex=SMS_CODE_TTL)
         logger.info("SMS code sent to %s***: %s", phone_hash[:6], code)
         return code
+
+    async def send_email_code(self, email: str) -> str:
+        """发送邮箱验证码（SMTP 可选配置）"""
+        if not settings.ENABLE_EMAIL_CODE_LOGIN:
+            raise HKTError(403, "HKT_403_EMAIL_CODE_DISABLED", "邮箱验证码登录未开启")
+
+        email_hash = _hash(email)
+        code = _generate_sms_code()
+        await self.redis.set(_KEY_EMAIL_CODE.format(email_hash), code, ex=SMS_CODE_TTL)
+
+        if not settings.SMTP_HOST or not settings.SMTP_SENDER:
+            if settings.DEBUG:
+                logger.info("Email code sent to %s***: %s", email_hash[:6], code)
+                return code
+            raise HKTError(503, "HKT_503_EMAIL_SERVICE_UNAVAILABLE", "邮箱验证码服务未配置")
+
+        await asyncio.to_thread(self._send_email, email, code)
+        return code
+
+    async def verify_email_code(self, email: str, code: str) -> bool:
+        """验证邮箱验证码并删除"""
+        email_hash = _hash(email)
+        stored_code = await self.redis.get(_KEY_EMAIL_CODE.format(email_hash))
+        if not stored_code or stored_code != code:
+            return False
+        await self.redis.delete(_KEY_EMAIL_CODE.format(email_hash))
+        return True
+
+    def _send_email(self, to_email: str, code: str) -> None:
+        message = EmailMessage()
+        message["Subject"] = "HackTravel 验证码"
+        message["From"] = settings.SMTP_SENDER
+        message["To"] = to_email
+        message.set_content(f"你的登录验证码是 {code}，5 分钟内有效。")
+
+        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as smtp:
+            if settings.SMTP_USE_TLS:
+                smtp.starttls()
+            if settings.SMTP_USER and settings.SMTP_PASSWORD:
+                smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+            smtp.send_message(message)
 
     # ── Token 验证 ──
 

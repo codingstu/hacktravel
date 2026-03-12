@@ -34,6 +34,7 @@ async def register(body: RegisterRequest) -> AuthResponse:
     user_data, token, auto_password = await auth_service.register(
         name=body.name,
         email=body.email,
+        email_code=body.email_code,
         phone=body.phone,
         country_code=body.country_code,
         password=body.password,
@@ -63,13 +64,19 @@ async def login(body: LoginRequest) -> AuthResponse:
     """邮箱密码 或 手机验证码登录"""
     if body.email and body.password:
         user_data, token = await auth_service.login_email(body.email, body.password)
+        is_new = False
+    elif body.email and body.email_code:
+        user_data, token, is_new = await auth_service.login_email_code(
+            body.email, body.email_code,
+        )
     elif body.phone and body.sms_code:
         user_data, token = await auth_service.login_phone(
             body.phone, body.country_code or "+86", body.sms_code,
         )
+        is_new = False
     else:
         from app.core.exceptions import InvalidInputError
-        raise InvalidInputError("请提供邮箱密码或手机验证码")
+        raise InvalidInputError("请提供邮箱密码、邮箱验证码或手机验证码")
 
     return AuthResponse(
         success=True,
@@ -82,7 +89,7 @@ async def login(body: LoginRequest) -> AuthResponse:
             avatar_url=user_data.get("avatar_url") or None,
             provider=user_data.get("provider"),
         ),
-        is_new=False,
+        is_new=is_new,
     )
 
 
@@ -114,7 +121,10 @@ async def social_login(body: SocialLoginRequest) -> AuthResponse:
 @router.post("/send-code", response_model=SendCodeResponse)
 async def send_code(body: SendCodeRequest) -> SendCodeResponse:
     """发送手机验证码"""
-    await auth_service.send_sms_code(body.phone, body.country_code)
+    if body.email:
+        await auth_service.send_email_code(body.email)
+    else:
+        await auth_service.send_sms_code(body.phone or "", body.country_code or "+86")
     return SendCodeResponse(
         success=True,
         message="验证码已发送",

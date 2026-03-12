@@ -21,6 +21,15 @@ class Settings(BaseSettings):
     ENABLE_WATCHLIST_LEAD_CAPTURE: bool = True
     ENABLE_ADMIN_REVIEW: bool = False
 
+    # ── Auth / Email ────────────────────────────────────
+    ENABLE_EMAIL_CODE_LOGIN: bool = True
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_SENDER: str = ""
+    SMTP_USE_TLS: bool = True
+
     # ── Database ─────────────────────────────────────────
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/hacktravel"
 

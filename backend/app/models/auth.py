@@ -11,13 +11,14 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class RegisterRequest(BaseModel):
     """注册请求"""
     name: str = Field(..., min_length=1, max_length=100, description="用户名")
     email: Optional[str] = Field(default=None, description="邮箱")
+    email_code: Optional[str] = Field(default=None, description="邮箱验证码")
     phone: Optional[str] = Field(default=None, description="手机号（含国际区号）")
     country_code: Optional[str] = Field(default=None, description="国家区号，如 +86")
     password: Optional[str] = Field(default=None, min_length=6, max_length=128)
@@ -47,6 +48,7 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     """登录请求（邮箱密码 或 手机验证码）"""
     email: Optional[str] = Field(default=None, description="邮箱")
+    email_code: Optional[str] = Field(default=None, description="邮箱验证码")
     phone: Optional[str] = Field(default=None, description="手机号")
     country_code: Optional[str] = Field(default=None, description="国家区号")
     password: Optional[str] = Field(default=None, description="密码")
@@ -72,8 +74,38 @@ class SocialLoginRequest(BaseModel):
 
 class SendCodeRequest(BaseModel):
     """发送验证码请求"""
-    phone: str = Field(..., description="手机号")
-    country_code: str = Field(..., description="国家区号，如 +86")
+    phone: Optional[str] = Field(default=None, description="手机号")
+    country_code: Optional[str] = Field(default=None, description="国家区号，如 +86")
+    email: Optional[str] = Field(default=None, description="邮箱")
+
+    @field_validator("email")
+    @classmethod
+    def validate_send_email(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == "":
+            return None
+        v = v.strip().lower()
+        if "@" not in v or "." not in v.split("@")[-1]:
+            raise ValueError("邮箱格式不正确")
+        return v
+
+    @field_validator("phone")
+    @classmethod
+    def validate_send_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == "":
+            return None
+        v = v.strip()
+        digits = "".join(c for c in v if c.isdigit())
+        if len(digits) < 5 or len(digits) > 15:
+            raise ValueError("手机号格式不正确")
+        return v
+
+    @model_validator(mode="after")
+    def ensure_target(self) -> "SendCodeRequest":
+        if not self.email and not self.phone:
+            raise ValueError("请提供邮箱或手机号")
+        if self.phone and not self.country_code:
+            raise ValueError("请提供国家区号")
+        return self
 
 
 class AuthUser(BaseModel):
