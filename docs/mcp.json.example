@@ -1,0 +1,36 @@
+{
+  "_comment": "MCP 配置示例。复制到 .mcp.json 并按需修改。如含凭证请添加 .mcp.json 到 .gitignore。",
+  "mcpServers": {
+    "filesystem": {
+      "_comment": "内置文件系统访问。调整 allowedDirectories 为项目根目录。",
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/path/to/HackTravel"
+      ]
+    },
+    "github": {
+      "_comment": "GitHub API 访问：读写 issues、PR、评论、文件。需要 GITHUB_TOKEN 环境变量。",
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    },
+    "fetch": {
+      "_comment": "Web fetch / search：让 AI 获取 URL 和搜索网络文档。",
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-fetch"]
+    },
+    "memory": {
+      "_comment": "跨会话持久记忆：将关键事实存储在本地知识图谱中。",
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    }
+  }
+}
