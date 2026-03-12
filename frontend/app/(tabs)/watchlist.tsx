@@ -9,7 +9,7 @@
  *
  * 设计语言：Stitch — 圆角 xl 卡片、primary gradient radar、icon-prefix 输入框
  */
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -17,8 +17,6 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  Animated,
-  Easing,
   Alert,
   Linking,
   ActivityIndicator,
@@ -42,6 +40,7 @@ import {
   createPriceAlert,
   fetchPriceAlerts,
 } from '@/services/api';
+import { RadarScanCard } from '@/components/RadarScanCard';
 import type { PriceAlertItem } from '@/services/types';
 
 /* ── 热门目的地快捷标签 ── */
@@ -69,48 +68,6 @@ export default function WatchlistScreen() {
   const [alerts, setAlerts] = useState<PriceAlertItem[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
-
-  // ── 雷达动画 ──
-  const rotateAnim = useRef(new Animated.Value(0)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    const rotateLoop = Animated.loop(
-      Animated.timing(rotateAnim, {
-        toValue: 1,
-        duration: 5000,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }),
-    );
-    const pulseLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.1,
-          duration: 2000,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 2000,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    rotateLoop.start();
-    pulseLoop.start();
-    return () => {
-      rotateLoop.stop();
-      pulseLoop.stop();
-    };
-  }, [rotateAnim, pulseAnim]);
-
-  const rotateSpin = rotateAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
 
   const validateEmail = useCallback((value: string) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -216,41 +173,9 @@ export default function WatchlistScreen() {
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled">
 
-      {/* ── Stitch Radar Hero Card ── */}
+      {/* ── Dynamic Radar Hero Card ── */}
       <View style={{ paddingTop: insets.top + Spacing.sm, paddingHorizontal: Spacing.lg }}>
-        <View style={styles.radarCard}>
-          {/* Decorative rings — outermost rotates */}
-          <View style={styles.radarRings}>
-            <Animated.View style={[styles.radarRing, { width: 200, height: 200, transform: [{ rotate: rotateSpin }] }]} />
-            <View style={[styles.radarRing, { width: 150, height: 150 }]} />
-            <View style={[styles.radarRing, { width: 100, height: 100 }]} />
-            <View style={[styles.radarRing, { width: 50, height: 50 }]} />
-          </View>
-          {/* LIVE badge */}
-          <View style={styles.liveBadge}>
-            <View style={styles.liveDot} />
-            <Text style={styles.liveBadgeText}>LIVE</Text>
-          </View>
-          {/* Center content */}
-          <Animated.View style={[styles.radarIconWrap, { transform: [{ scale: pulseAnim }] }]}>
-            <Ionicons name="radio" size={36} color="#fff" />
-          </Animated.View>
-          <Text style={styles.radarTitle}>{t('radar.scanning')}</Text>
-          <Text style={styles.radarSub}>
-            {t('radar.feature1Desc')}
-            {subscriberCount !== null ? ` · ${t('radar.subscriberCount', { count: subscriberCount })}` : ''}
-          </Text>
-          {/* Progress bar */}
-          <View style={styles.progressWrap}>
-            <View style={styles.progressLabelRow}>
-              <Text style={styles.progressLabel}>GLOBAL COVERAGE</Text>
-              <Text style={styles.progressLabel}>100%</Text>
-            </View>
-            <View style={styles.progressTrack}>
-              <View style={styles.progressFill} />
-            </View>
-          </View>
-        </View>
+        <RadarScanCard subscriberCount={subscriberCount} />
       </View>
 
       {/* ── Create Price Alert — Stitch card ── */}
@@ -552,94 +477,6 @@ const styles = StyleSheet.create({
   },
   scroll: {
     paddingBottom: 120,
-  },
-
-  // ── Radar Hero Card — Stitch _3
-  radarCard: {
-    backgroundColor: Colors.primary,
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.xl,
-    alignItems: 'center',
-    overflow: 'hidden',
-    ...Shadow.lg,
-  },
-  radarRings: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    opacity: 0.15,
-  },
-  radarRing: {
-    position: 'absolute',
-    borderRadius: 9999,
-    borderWidth: 1,
-    borderColor: '#fff',
-  },
-  liveBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#ffffff20',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 4,
-    borderRadius: BorderRadius.full,
-    alignSelf: 'flex-start',
-    marginBottom: Spacing.lg,
-  },
-  liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#ef4444',
-  },
-  liveBadgeText: {
-    color: '#fff',
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.bold,
-    letterSpacing: 1.5,
-  },
-  radarIconWrap: {
-    marginBottom: Spacing.sm,
-  },
-  radarTitle: {
-    color: '#fff',
-    fontSize: FontSize.xl,
-    fontWeight: FontWeight.bold,
-    marginBottom: 4,
-  },
-  radarSub: {
-    color: '#ffffffCC',
-    fontSize: FontSize.sm,
-    textAlign: 'center',
-    marginBottom: Spacing.lg,
-    lineHeight: 20,
-  },
-  progressWrap: {
-    width: '100%',
-  },
-  progressLabelRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  progressLabel: {
-    fontSize: 10,
-    color: '#ffffff99',
-    fontWeight: FontWeight.bold,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  progressTrack: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#ffffff30',
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    width: '100%',
-    borderRadius: 2,
-    backgroundColor: '#fff',
   },
 
   // ── Alert Section — Stitch card style

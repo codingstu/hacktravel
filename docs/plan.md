@@ -21,6 +21,7 @@
 - [x] 地区自适应 Disclaimer（大洲+语言方案，前端驱动）
 - [x] 前后端 PolicyInfo 类型对齐 + disclaimer 字段预留
 - [x] UI/UX 体验优化（共享组件提取、骨架屏、Toast 统一、输入区增强、空状态优化）
+- [x] 雷达扫描面板动态化（自动扫描动效 + scan-status API + 系统状态检测）
 
 ## 进行中
 

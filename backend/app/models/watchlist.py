@@ -46,3 +46,12 @@ class PriceAlertItem(BaseModel):
 class PriceAlertListResponse(BaseModel):
     alerts: list[PriceAlertItem]
     total: int
+
+
+class ScanStatusResponse(BaseModel):
+    """价格扫描系统状态"""
+    enabled: bool = Field(description="扫描功能是否启用")
+    active_alerts: int = Field(default=0, description="当前活跃监控数")
+    routes_scanned: int = Field(default=0, description="已扫描航线数")
+    last_scan_at: Optional[str] = Field(default=None, description="最后扫描时间 ISO")
+    status: str = Field(default="idle", description="idle | scanning | paused | offline")

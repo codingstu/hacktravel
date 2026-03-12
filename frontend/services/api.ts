@@ -18,6 +18,7 @@ import {
   PriceAlertRequest,
   PriceAlertResponse,
   PriceAlertListResponse,
+  ScanStatusResponse,
   RegionMetadataResponse,
   UserProfileResponse,
   UserProfileUpdateRequest,
@@ -425,6 +426,23 @@ export async function fetchPriceAlerts(
     throw new ApiError(parseErrorResponse(data));
   }
   return data as PriceAlertListResponse;
+}
+
+/**
+ * 获取雷达扫描系统实时状态
+ */
+export async function fetchScanStatus(): Promise<ScanStatusResponse> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/v1/watchlist/scan-status`,
+    { method: 'GET' },
+    8_000,
+  );
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(parseErrorResponse(data));
+  }
+  return data as ScanStatusResponse;
 }
 
 // ── Profile API (Tab4 用户中心) ─────────────────────────────

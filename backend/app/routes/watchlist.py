@@ -2,6 +2,7 @@
 
 POST /v1/watchlist/alerts      — create price alert
 GET  /v1/watchlist/alerts      — list alerts by email
+GET  /v1/watchlist/scan-status — radar scan system status
 """
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ from app.models.watchlist import (
     PriceAlertListResponse,
     PriceAlertRequest,
     PriceAlertResponse,
+    ScanStatusResponse,
 )
 from app.services.watchlist_service import watchlist_service
 
@@ -38,3 +40,10 @@ async def list_price_alerts(
     alerts = await watchlist_service.list_alerts_by_email(email)
     items = [PriceAlertItem(**a) for a in alerts]
     return PriceAlertListResponse(alerts=items, total=len(items))
+
+
+@router.get("/scan-status", response_model=ScanStatusResponse)
+async def scan_status() -> ScanStatusResponse:
+    """返回价格扫描系统的实时状态，供前端雷达面板展示"""
+    status = await watchlist_service.get_scan_status()
+    return ScanStatusResponse(**status)

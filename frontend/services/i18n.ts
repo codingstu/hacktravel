@@ -204,6 +204,14 @@ const zh: TranslationDict = {
 
   // ── Watchlist 页 (watchlist.tsx) ──
   'radar.scanning': '正在扫描',
+  'radar.scanningRoute': '扫描中: {origin} → {dest}',
+  'radar.scanActive': '系统运行中',
+  'radar.scanPaused': '扫描暂停',
+  'radar.scanOffline': '系统离线',
+  'radar.scanIdle': '等待任务',
+  'radar.activeAlerts': '{count} 条监控活跃',
+  'radar.routesScanned': '已扫描 {count} 条航线',
+  'radar.lastScan': '最近更新',
   'radar.routes': '条航线',
   'radar.live': 'LIVE',
   'radar.progress': '已监控',
@@ -403,6 +411,14 @@ const en: TranslationDict = {
 
   // ── Watchlist 页 (watchlist.tsx) ──
   'radar.scanning': 'Scanning',
+  'radar.scanningRoute': 'Scanning: {origin} → {dest}',
+  'radar.scanActive': 'System Active',
+  'radar.scanPaused': 'Scan Paused',
+  'radar.scanOffline': 'System Offline',
+  'radar.scanIdle': 'Awaiting Tasks',
+  'radar.activeAlerts': '{count} alerts active',
+  'radar.routesScanned': '{count} routes scanned',
+  'radar.lastScan': 'Last updated',
   'radar.routes': 'routes',
   'radar.live': 'LIVE',
   'radar.progress': 'Monitored',

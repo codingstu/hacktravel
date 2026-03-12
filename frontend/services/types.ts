@@ -246,6 +246,15 @@ export interface PriceAlertListResponse {
   total: number;
 }
 
+/** Tab3 雷达扫描系统状态 */
+export interface ScanStatusResponse {
+  enabled: boolean;
+  active_alerts: number;
+  routes_scanned: number;
+  last_scan_at: string | null;
+  status: 'idle' | 'scanning' | 'paused' | 'offline';
+}
+
 // ── Tab4 Profile 用户中心 ──
 
 /** 用户资料 */

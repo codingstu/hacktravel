@@ -10,6 +10,7 @@ from app.models.watchlist import (
     PriceAlertResponse,
     PriceAlertItem,
     PriceAlertListResponse,
+    ScanStatusResponse,
 )
 from app.services.place_service import fetch_place_detail
 
@@ -133,6 +134,32 @@ def test_price_alert_list_response():
     )
     assert resp.total == 1
     assert len(resp.alerts) == 1
+
+
+def test_scan_status_response_scanning():
+    resp = ScanStatusResponse(
+        enabled=True,
+        active_alerts=5,
+        routes_scanned=250,
+        last_scan_at="2026-03-13T10:00:00Z",
+        status="scanning",
+    )
+    assert resp.enabled is True
+    assert resp.status == "scanning"
+    assert resp.routes_scanned == 250
+
+
+def test_scan_status_response_offline():
+    resp = ScanStatusResponse(
+        enabled=False,
+        active_alerts=0,
+        routes_scanned=0,
+        last_scan_at=None,
+        status="offline",
+    )
+    assert resp.enabled is False
+    assert resp.status == "offline"
+    assert resp.last_scan_at is None
 
 
 # ── Place service tests ──────────────────────────────────

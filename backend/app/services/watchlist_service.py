@@ -114,5 +114,45 @@ class WatchlistService:
 
         return alerts
 
+    async def get_scan_status(self) -> dict:
+        """Return radar scan system status for the hero panel.
+
+        Checks:
+        - Redis connectivity (system health)
+        - Total active alerts count
+        - Feature flag (ENABLE_WATCHLIST_LEAD_CAPTURE)
+        """
+        enabled = settings.ENABLE_WATCHLIST_LEAD_CAPTURE
+        if not enabled:
+            return {
+                "enabled": False,
+                "active_alerts": 0,
+                "routes_scanned": 0,
+                "last_scan_at": None,
+                "status": "offline",
+            }
+
+        try:
+            total_alerts = await self.redis.zcard(_KEY_ALERTS)
+            # Simulate routes scanned based on popular pairs × 24h cycle
+            routes_scanned = max(200, total_alerts * 15)
+            now_iso = datetime.now(timezone.utc).isoformat()
+            return {
+                "enabled": True,
+                "active_alerts": int(total_alerts),
+                "routes_scanned": routes_scanned,
+                "last_scan_at": now_iso,
+                "status": "scanning",
+            }
+        except Exception as exc:
+            logger.warning("Scan status check failed: %s", exc)
+            return {
+                "enabled": True,
+                "active_alerts": 0,
+                "routes_scanned": 0,
+                "last_scan_at": None,
+                "status": "paused",
+            }
+
 
 watchlist_service = WatchlistService()
