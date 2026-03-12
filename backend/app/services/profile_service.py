@@ -7,15 +7,17 @@ Redis keys:
 - hkt:profile:itineraries:{device_hash} → ZSET (itinerary_id scored by saved_at timestamp)
 - hkt:profile:itinerary:{itinerary_id}  → HASH (itinerary details)
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
-import time
-import uuid
 from datetime import datetime, timezone
 from typing import Optional
+
+from app.models.profile import SavedItineraryContext
+from app.models.itinerary import ItineraryGenerateResponse
 
 import redis.asyncio as aioredis
 
@@ -47,9 +49,7 @@ class ProfileService:
     @property
     def redis(self) -> aioredis.Redis:
         if self._redis is None:
-            self._redis = aioredis.from_url(
-                settings.REDIS_URL, decode_responses=True
-            )
+            self._redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
         return self._redis
 
     # ── Profile CRUD ──────────────────────────────────────
@@ -80,16 +80,26 @@ class ProfileService:
 
         # Initialize stats
         stats_key = _KEY_STATS.format(device_hash)
-        await self.redis.hset(stats_key, mapping={
-            "trips": "0", "saved": "0", "reviews": "0",
-        })
+        await self.redis.hset(
+            stats_key,
+            mapping={
+                "trips": "0",
+                "saved": "0",
+                "reviews": "0",
+            },
+        )
         await self.redis.expire(stats_key, PROFILE_TTL)
 
         # Initialize preferences
         prefs_key = _KEY_PREFS.format(device_hash)
-        await self.redis.hset(prefs_key, mapping={
-            "dark_mode": "false", "language": "en", "currency": "USD",
-        })
+        await self.redis.hset(
+            prefs_key,
+            mapping={
+                "dark_mode": "false",
+                "language": "en",
+                "currency": "USD",
+            },
+        )
         await self.redis.expire(prefs_key, PROFILE_TTL)
 
         default["countries_visited"] = 0
@@ -232,6 +242,8 @@ class ProfileService:
         stops: int = 0,
         days: int = 0,
         cover_image: Optional[str] = None,
+        context: Optional[SavedItineraryContext] = None,
+        generated: Optional[ItineraryGenerateResponse] = None,
     ) -> dict:
         """Save an itinerary to user's collection."""
         device_hash = _hash_device(device_id)
@@ -271,6 +283,16 @@ class ProfileService:
             "saved_at": saved_at,
             "device_id": device_id,
         }
+
+        # 可选：保存完整详情（用于 Profile 详情展示与编辑）
+        if context is not None:
+            itin_data["context_json"] = json.dumps(
+                context.model_dump(), ensure_ascii=False
+            )
+        if generated is not None:
+            itin_data["generated_json"] = json.dumps(
+                generated.model_dump(), ensure_ascii=False
+            )
         await self.redis.hset(itin_key, mapping=itin_data)
         await self.redis.expire(itin_key, PROFILE_TTL)
 
@@ -281,7 +303,9 @@ class ProfileService:
         # Update saved count
         await self.increment_stat(device_id, "saved", 1)
 
-        logger.info("Saved itinerary %s for device %s***", itinerary_id, device_hash[:6])
+        logger.info(
+            "Saved itinerary %s for device %s***", itinerary_id, device_hash[:6]
+        )
 
         return {
             "success": True,
@@ -306,9 +330,54 @@ class ProfileService:
             if data:
                 data["stops"] = int(data.get("stops", 0))
                 data["days"] = int(data.get("days", 0))
+
+                # 列表接口只返回摘要，避免 payload 过大
+                data.pop("context_json", None)
+                data.pop("generated_json", None)
+                data.pop("device_id", None)
                 itineraries.append(data)
 
         return itineraries
+
+    async def get_itinerary_detail(
+        self, device_id: str, itinerary_id: str
+    ) -> Optional[dict]:
+        """Get a single saved itinerary with optional generated/context.
+
+        Returns a dict compatible with SavedItineraryDetail (models/profile.py).
+        """
+        device_hash = _hash_device(device_id)
+        itin_list_key = _KEY_ITINERARIES.format(device_hash)
+
+        # Ensure the itinerary belongs to this device
+        score = await self.redis.zscore(itin_list_key, itinerary_id)
+        if score is None:
+            return None
+
+        itin_key = _KEY_ITINERARY.format(itinerary_id)
+        data = await self.redis.hgetall(itin_key)
+        if not data:
+            return None
+
+        data["stops"] = int(data.get("stops", 0))
+        data["days"] = int(data.get("days", 0))
+
+        context_json = data.pop("context_json", None)
+        generated_json = data.pop("generated_json", None)
+        data.pop("device_id", None)
+
+        if context_json:
+            try:
+                data["context"] = json.loads(context_json)
+            except Exception:
+                data["context"] = None
+        if generated_json:
+            try:
+                data["generated"] = json.loads(generated_json)
+            except Exception:
+                data["generated"] = None
+
+        return data
 
     async def delete_itinerary(self, device_id: str, itinerary_id: str) -> dict:
         """Remove a saved itinerary."""
@@ -323,7 +392,9 @@ class ProfileService:
             await self.redis.delete(itin_key)
             # Decrement saved count
             await self.increment_stat(device_id, "saved", -1)
-            logger.info("Deleted itinerary %s for device %s***", itinerary_id, device_hash[:6])
+            logger.info(
+                "Deleted itinerary %s for device %s***", itinerary_id, device_hash[:6]
+            )
             return {"success": True, "message": "行程已删除"}
 
         return {"success": False, "message": "行程不存在"}

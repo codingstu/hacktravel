@@ -5,18 +5,24 @@ PUT  /v1/profile          — update profile
 GET  /v1/profile/stats    — aggregated stats
 PUT  /v1/profile/preferences — update preferences
 """
+
 from __future__ import annotations
 
 from typing import Optional
+
+from app.models.itinerary import ItineraryGenerateResponse, Money
 
 from pydantic import BaseModel, Field, field_validator
 
 
 class UserProfile(BaseModel):
     """用户资料"""
+
     device_id: str = Field(..., min_length=1, max_length=128, description="设备标识")
     name: str = Field(default="Traveler", max_length=100, description="用户昵称")
-    tagline: str = Field(default="Travel Enthusiast", max_length=200, description="个人标签")
+    tagline: str = Field(
+        default="Travel Enthusiast", max_length=200, description="个人标签"
+    )
     avatar_url: Optional[str] = Field(default=None, description="头像 URL")
     email: Optional[str] = Field(default=None, description="邮箱")
     countries_visited: int = Field(default=0, ge=0, description="到访国家数")
@@ -39,6 +45,7 @@ class UserProfile(BaseModel):
 
 class UserProfileUpdateRequest(BaseModel):
     """PUT /v1/profile request body."""
+
     device_id: str = Field(..., min_length=1, max_length=128)
     name: Optional[str] = Field(default=None, max_length=100)
     tagline: Optional[str] = Field(default=None, max_length=200)
@@ -64,12 +71,14 @@ class UserProfileUpdateRequest(BaseModel):
 
 class UserProfileResponse(BaseModel):
     """GET /v1/profile response."""
+
     profile: UserProfile
     is_new: bool = False
 
 
 class UserStats(BaseModel):
     """用户统计数据"""
+
     trips: int = 0
     saved: int = 0
     reviews: int = 0
@@ -77,12 +86,14 @@ class UserStats(BaseModel):
 
 class UserStatsResponse(BaseModel):
     """GET /v1/profile/stats response."""
+
     stats: UserStats
     device_id: str
 
 
 class SavedItinerary(BaseModel):
     """已保存行程"""
+
     itinerary_id: str
     title: str
     destination: str
@@ -92,14 +103,39 @@ class SavedItinerary(BaseModel):
     saved_at: str = ""
 
 
+class SavedItineraryContext(BaseModel):
+    """保存行程时附带的上下文，用于后续查看/编辑回填。"""
+
+    origin: str = Field(..., min_length=1, max_length=200, description="出发地")
+    destination: str = Field(..., min_length=1, max_length=200, description="目的地")
+    total_hours: int = Field(..., gt=0, le=720, description="总时长（小时）")
+    budget: Money = Field(..., description="预算")
+    tags: list[str] = Field(default_factory=list, max_length=10, description="偏好标签")
+    continent: Optional[str] = Field(
+        default=None, max_length=32, description="大洲筛选"
+    )
+    sub_region: Optional[str] = Field(
+        default=None, max_length=64, description="子区域筛选"
+    )
+
+
+class SavedItineraryDetail(SavedItinerary):
+    """单条收藏行程详情（用于 Profile 详情弹窗/编辑回填）。"""
+
+    context: Optional[SavedItineraryContext] = None
+    generated: Optional[ItineraryGenerateResponse] = None
+
+
 class SavedItinerariesResponse(BaseModel):
     """GET /v1/profile/itineraries response."""
+
     itineraries: list[SavedItinerary]
     total: int
 
 
 class SaveItineraryRequest(BaseModel):
     """POST /v1/profile/itineraries request body."""
+
     device_id: str = Field(..., min_length=1, max_length=128)
     itinerary_id: str = Field(..., min_length=1)
     title: str = Field(..., min_length=1, max_length=200)
@@ -107,10 +143,14 @@ class SaveItineraryRequest(BaseModel):
     stops: int = Field(default=0, ge=0)
     days: int = Field(default=0, ge=0)
     cover_image: Optional[str] = None
+    # 可选：保存完整行程详情，便于 Profile 详情展示与编辑
+    context: Optional[SavedItineraryContext] = None
+    generated: Optional[ItineraryGenerateResponse] = None
 
 
 class SaveItineraryResponse(BaseModel):
     """POST /v1/profile/itineraries response."""
+
     success: bool = True
     message: str = "行程已保存"
     itinerary_id: str = ""
@@ -118,12 +158,22 @@ class SaveItineraryResponse(BaseModel):
 
 class DeleteItineraryResponse(BaseModel):
     """DELETE /v1/profile/itineraries/:id response."""
+
     success: bool = True
     message: str = "行程已删除"
 
 
+class SavedItineraryDetailResponse(BaseModel):
+    """GET /v1/profile/itineraries/:id response."""
+
+    success: bool = True
+    message: str = "OK"
+    itinerary: Optional[SavedItineraryDetail] = None
+
+
 class UserPreferences(BaseModel):
     """用户偏好设置"""
+
     dark_mode: bool = False
     language: str = "en"
     currency: str = "USD"
@@ -131,6 +181,7 @@ class UserPreferences(BaseModel):
 
 class UserPreferencesRequest(BaseModel):
     """PUT /v1/profile/preferences request body."""
+
     device_id: str = Field(..., min_length=1, max_length=128)
     dark_mode: Optional[bool] = None
     language: Optional[str] = Field(default=None, max_length=10)
@@ -139,5 +190,6 @@ class UserPreferencesRequest(BaseModel):
 
 class UserPreferencesResponse(BaseModel):
     """PUT /v1/profile/preferences response."""
+
     success: bool = True
     preferences: UserPreferences

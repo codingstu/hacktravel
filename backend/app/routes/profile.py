@@ -9,6 +9,7 @@ GET    /v1/profile/itineraries    — list saved itineraries
 POST   /v1/profile/itineraries    — save an itinerary
 DELETE /v1/profile/itineraries/:id — delete saved itinerary
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Query
@@ -16,6 +17,7 @@ from fastapi import APIRouter, Query
 from app.models.profile import (
     DeleteItineraryResponse,
     SavedItinerariesResponse,
+    SavedItineraryDetailResponse,
     SavedItinerary,
     SaveItineraryRequest,
     SaveItineraryResponse,
@@ -125,8 +127,26 @@ async def save_itinerary(body: SaveItineraryRequest) -> SaveItineraryResponse:
         stops=body.stops,
         days=body.days,
         cover_image=body.cover_image,
+        context=body.context,
+        generated=body.generated,
     )
     return SaveItineraryResponse(**result)
+
+
+@router.get("/itineraries/{itinerary_id}", response_model=SavedItineraryDetailResponse)
+async def get_itinerary_detail(
+    itinerary_id: str,
+    device_id: str = Query(..., min_length=1, description="设备标识"),
+) -> SavedItineraryDetailResponse:
+    """获取单条已保存行程详情（含可选 legs 等完整信息）"""
+    item = await profile_service.get_itinerary_detail(
+        device_id=device_id, itinerary_id=itinerary_id
+    )
+    if not item:
+        return SavedItineraryDetailResponse(
+            success=False, message="行程不存在", itinerary=None
+        )
+    return SavedItineraryDetailResponse(success=True, message="OK", itinerary=item)
 
 
 @router.delete("/itineraries/{itinerary_id}", response_model=DeleteItineraryResponse)
