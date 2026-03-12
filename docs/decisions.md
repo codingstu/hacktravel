@@ -144,3 +144,27 @@
 **影响:**
 - 正面：消除代码重复、统一 UI 表现、为后续拆分 index.tsx 奠定基础。
 - 负面：引入新组件文件，但均在 80 行规范内。
+
+---
+
+## 2026-03-13 — 收藏行程采用“列表轻量 + 详情接口”
+
+**状态:** accepted
+
+**背景:**
+Profile 的“已保存行程”需要点开查看真实 legs 时间轴，并支持一键进入 Plan 继续编辑。早期实现只保存摘要字段（title/destination/stops/days/cover_image），导致：
+- 详情弹窗无法展示真实路线明细（legs）
+- 无法将收藏路线回填到 Plan 进行编辑
+
+**决策:**
+- `GET /v1/profile/itineraries` 继续保持轻量（仅摘要列表）
+- 新增 `GET /v1/profile/itineraries/{itinerary_id}?device_id=...` 返回单条收藏详情（可选包含 `context` 与 `generated`）
+- 保存收藏时可选写入 `context_json` 与 `generated_json`（Redis HASH），用于后续详情展示与编辑回填
+
+**影响:**
+- 正面：列表加载快且 payload 小；点开详情再按需拉取；Plan 可复用同一份行程结果进行编辑。
+- 负面：历史收藏若未写入 `generated_json`，详情会提示“暂无路线详情”，需要用户重新保存一次（或再次规划）。
+
+**备选方案:**
+- 列表直接返回完整 legs：实现简单但 payload 过大、列表渲染与网络成本高。
+- 详情完全实时重新生成：编辑一致性差且耗时高，不符合“收藏应可复现”的预期。
