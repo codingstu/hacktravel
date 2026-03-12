@@ -1,0 +1,34 @@
+---
+description: Expo + React Native 前端规则
+globs: ["frontend/**/*.ts", "frontend/**/*.tsx"]
+alwaysApply: false
+---
+
+# Expo React Native 规则（扩展 00-core.mdc）
+
+## 组件架构
+
+- Expo Router 文件系统路由，三 Tab 页面在 `app/(tabs)/`。
+- 保持渲染逻辑纯粹。副作用放在 hooks 或 services 中。
+- 复用或超过 80 行的组件，每个文件放一个组件。
+
+## 状态管理
+
+- 优先使用本地状态（`useState`、`useReducer`）。
+- 仅在远距离组件共享数据时才提升。
+- 引入状态库需记录在 `docs/decisions.md` 中。
+
+## 数据与副作用
+
+- API 调用放在 `services/api.ts`——永远不要内联在组件中。
+- 当逻辑在 2+ 个组件中重复时，提取自定义 hooks。
+
+## 三态展示
+
+- 每个页面/组件明确处理：加载态、空态、错误态。
+- 首屏提供预置内容，避免空白。
+
+## 质量
+
+- 变更后运行 `cd frontend && npx tsc --noEmit && npx jest --runInBand`。
+- 提交前使用 `AGENTS.md` §7 中的代码审查清单。

@@ -1,6 +1,12 @@
 # Prompt Template: fix-bug
 
+> 遵循 `AGENTS.md` 工作流规则。完整审查清单见 §7，反幻觉规则见 §10。
+
 你正在修复 HackTravel 的一个缺陷，请严格遵守以下规则：
+
+## 0. 上下文恢复
+
+先阅读：`AGENTS.md`、`docs/architecture.md`、`docs/commands.md`、`plans/implementation-blueprint.md`。
 
 ## 1. 目标
 
@@ -13,7 +19,8 @@
 - 修复过程不得破坏 [`implementation-blueprint.md`](plans/implementation-blueprint.md) 的既定约束
 - 修复完成后必须更新 `docs/YYYY-MM-DD/故障修复-功能点.md`
 - 修复完成后必须执行一次 Git 提交并 push 到 `main`
-- 提交格式固定为 `feat(scope): 修复摘要`
+- 提交格式固定为 `fix(scope): 修复摘要`
+- 修复后运行质量门控（`docs/commands.md`）确认无回归
 
 ## 3. 输出要求
 

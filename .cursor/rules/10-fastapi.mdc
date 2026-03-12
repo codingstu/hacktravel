@@ -1,0 +1,36 @@
+---
+description: FastAPI 后端服务规则
+globs: ["backend/**/*.py"]
+alwaysApply: false
+---
+
+# FastAPI 规则（扩展 00-core.mdc）
+
+## 分层职责
+
+- Routes（路由）：精简——通过 Pydantic Schema 验证 → 调用 Service → 返回响应模型。无业务逻辑。
+- Services（服务）：纯业务逻辑。无 DB 导入，无 HTTP 导入。
+- Models（模型）：Pydantic 请求/响应模型定义。
+- Core（核心）：配置、异常处理、中间件。
+
+## 依赖注入
+
+- 用 `Depends()` 处理认证、DB Session、配置、限流。
+- 通过 `pydantic-settings` 在 `core/config.py` 中进行配置。
+
+## 异步
+
+- I/O 密集型工作（DB、HTTP、LLM 调用）使用 `async def`。
+- 不要将 CPU 密集型工作包装在 async 中。使用 `run_in_executor`。
+
+## HackTravel 后端约束
+
+- 所有路由函数返回显式 Pydantic 响应模型——不返回未类型化的字典。
+- 错误码前缀 `HKT`，所有日志包含 `request_id`。
+- LLM 调用走 `llm_gateway.py`，遵循主备切换策略。
+- 行程数据经 Pydantic 校验与归一化后才能返回。
+
+## 质量
+
+- 变更后运行 `cd backend && ruff check . && ruff format --check . && pytest`。
+- 提交前使用 `AGENTS.md` §7 中的代码审查清单。
