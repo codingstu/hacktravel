@@ -62,10 +62,12 @@ import {
 import { formatMoney, formatMoneyWithCode, getTimezoneLabel } from '@/utils/format';
 import { HERO_IMAGE, RESULT_CARD_BG, getDestinationImage } from '@/services/images';
 import { t } from '@/services/i18n';
+import { useAuth } from '@/services/auth';
 import { DisclaimerBanner } from '@/components/DisclaimerBanner';
 import { Toast } from '@/components/Toast';
 import { ItinerarySkeleton } from '@/components/SkeletonCard';
 import { TravelItemCard } from '@/components/TravelItemCard';
+import { AuthScreen } from '@/components/AuthScreen';
 import { ACTIVITY_ICON_MAP } from '@/constants/activityIcons';
 import type {
   Continent,
@@ -149,6 +151,10 @@ function filterCities(text: string, limit = 6): string[] {
 }
 
 export default function GenerateScreen() {
+  // ── Auth & AI Usage Limit ──
+  const { user, checkAILimit, incrementAIUsage } = useAuth();
+  const [showAuthModal, setShowAuthModal] = useState(false);
+
   // ── URL 参数（从 Profile 页跳转时传入） ──
   const params = useLocalSearchParams<{ destination?: string }>();
 
@@ -339,6 +345,16 @@ export default function GenerateScreen() {
       setViewState('error');
       return;
     }
+
+    // 未登录用户检查 AI 使用次数限制（免费 3 次）
+    if (!user) {
+      const canUse = await checkAILimit();
+      if (!canUse) {
+        setShowAuthModal(true);
+        return;
+      }
+    }
+
     setViewState('loading');
     setErrorMsg('');
     setLoadingQuip(t('plan.loadingDefault'));
@@ -355,6 +371,12 @@ export default function GenerateScreen() {
         continent: selectedContinent,
         sub_region: selectedSubRegion || undefined,
       });
+
+      // 成功调用后增加匿名用户 AI 使用次数
+      if (!user) {
+        await incrementAIUsage();
+      }
+
       setResult(resp);
       setEditableLegs(resp.legs);
       setIsEditing(false);
@@ -373,7 +395,7 @@ export default function GenerateScreen() {
       }
       setViewState('error');
     }
-  }, [origin, destination, hours, budget, selectedContinent, selectedSubRegion, selectedTags]);
+  }, [origin, destination, hours, budget, selectedContinent, selectedSubRegion, selectedTags, user, checkAILimit, incrementAIUsage]);
 
   const handleOpenMaps = useCallback((url: string) => {
     Linking.openURL(url);
@@ -431,6 +453,16 @@ export default function GenerateScreen() {
   // ── 强制 AI 重新规划 ──
   const handleForceAI = useCallback(async () => {
     if (!destination.trim()) return;
+
+    // 未登录用户检查 AI 使用次数限制（免费 3 次）
+    if (!user) {
+      const canUse = await checkAILimit();
+      if (!canUse) {
+        setShowAuthModal(true);
+        return;
+      }
+    }
+
     setViewState('loading');
     setIsEditing(false);
     setErrorMsg('');
@@ -446,6 +478,12 @@ export default function GenerateScreen() {
         sub_region: selectedSubRegion || undefined,
         skip_preset: true,
       });
+
+      // 成功调用后增加匿名用户 AI 使用次数
+      if (!user) {
+        await incrementAIUsage();
+      }
+
       setResult(resp);
       setEditableLegs(resp.legs);
       setShowAddLeg(false);
@@ -458,7 +496,7 @@ export default function GenerateScreen() {
       else setErrorMsg(t('plan.unknownError'));
       setViewState('error');
     }
-  }, [origin, destination, hours, budget, selectedContinent, selectedSubRegion, selectedTags]);
+  }, [origin, destination, hours, budget, selectedContinent, selectedSubRegion, selectedTags, user, checkAILimit, incrementAIUsage]);
 
   const fillPreset = useCallback((route: CommunityRoute) => {
     setDestination(route.destination);
@@ -1191,6 +1229,9 @@ export default function GenerateScreen() {
       </Modal>
 
     <Toast message={toastMessage} onDismiss={() => setToastMessage('')} />
+
+    {/* 登录注册弹窗 - 匿名用户 AI 次数用尽后触发 */}
+    <AuthScreen visible={showAuthModal} onClose={() => setShowAuthModal(false)} />
   </KeyboardAvoidingView>
   );
 }

@@ -8,6 +8,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import 'react-native-reanimated';
 
 import { ThemeModeProvider, useThemeMode } from '@/services/theme';
+import { AuthProvider } from '@/services/auth';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -66,9 +67,11 @@ function RootLayoutInner() {
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <ThemeModeProvider>
-        <RootLayoutInner />
-      </ThemeModeProvider>
+      <AuthProvider>
+        <ThemeModeProvider>
+          <RootLayoutInner />
+        </ThemeModeProvider>
+      </AuthProvider>
     </SafeAreaProvider>
   );
 }

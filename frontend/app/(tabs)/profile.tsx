@@ -45,7 +45,9 @@ import {
 import { t, setLocale } from '@/services/i18n';
 import { getDestinationImage } from '@/services/images';
 import { useThemeMode } from '@/services/theme';
+import { useAuth } from '@/services/auth';
 import { Toast } from '@/components/Toast';
+import { Avatar } from '@/components/Avatar';
 import {
   fetchProfile,
   fetchProfileStats,
@@ -88,6 +90,7 @@ export default function ProfileScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const { colors, setMode } = useThemeMode();
   const router = useRouter();
+  const { user, signOut } = useAuth();
 
   const [viewState, setViewState] = useState<ViewState>('loading');
   const [refreshing, setRefreshing] = useState(false);
@@ -309,6 +312,9 @@ export default function ProfileScreen() {
   }, []);
 
   const confirmLogout = useCallback(async () => {
+    // 调用 auth 服务退出登录
+    await signOut();
+    // 清除本地设备 ID（适用于匿名用户）
     await AsyncStorage.removeItem('device_id');
     setDeviceId('');
     setProfile(null);
@@ -318,7 +324,7 @@ export default function ProfileScreen() {
     setAlerts([]);
     setLogoutVisible(false);
     await loadData();
-  }, [loadData]);
+  }, [loadData, signOut]);
 
   const handleViewAllAlerts = useCallback(async () => {
     if (!deviceId) return;
@@ -479,15 +485,16 @@ export default function ProfileScreen() {
         {/* ── 用户头像卡片 ── */}
         <View style={[themedStyles.profileCard, Shadow.md]}>
           <TouchableOpacity style={themedStyles.avatarContainer} onPress={handlePickAvatar}>
-            <Image
-              source={{ uri: profile?.avatar_url || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop&auto=format&q=80' }}
-              style={themedStyles.avatar}
+            <Avatar
+              name={user?.name || profile?.name || 'Traveler'}
+              imageUrl={profile?.avatar_url}
+              size={80}
             />
             <View style={themedStyles.cameraIconWrap}>
               <Ionicons name="camera" size={14} color={colors.textOnPrimary} />
             </View>
           </TouchableOpacity>
-          <Text style={themedStyles.userName}>{profile?.name || 'Traveler'}</Text>
+          <Text style={themedStyles.userName}>{user?.name || profile?.name || 'Traveler'}</Text>
           <View style={themedStyles.taglineRow}>
             <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
             <Text style={themedStyles.taglineText}>

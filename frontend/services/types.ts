@@ -357,3 +357,83 @@ export interface DeleteItineraryResponse {
   success: boolean;
   message: string;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Auth Types — 用户认证
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** 注册请求 */
+export interface RegisterRequest {
+  name: string;
+  email?: string;
+  phone?: string;
+  country_code?: string;
+  password?: string;
+}
+
+/** 登录请求 */
+export interface LoginRequest {
+  email?: string;
+  phone?: string;
+  country_code?: string;
+  password?: string;
+  sms_code?: string;
+}
+
+/** 社交登录请求 */
+export interface SocialLoginRequest {
+  provider: 'google' | 'facebook' | 'instagram';
+  token: string;
+  name?: string;
+  email?: string;
+  avatar_url?: string;
+}
+
+/** 发送验证码请求 */
+export interface SendCodeRequest {
+  phone: string;
+  country_code: string;
+}
+
+/** 认证用户 */
+export interface AuthUser {
+  user_id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  avatar_url?: string;
+  provider?: string;
+  device_id?: string;
+}
+
+/** 认证响应 */
+export interface AuthResponse {
+  success: boolean;
+  token: string;
+  user: AuthUser;
+  is_new: boolean;
+  message?: string;
+}
+
+/** 发送验证码响应 */
+export interface SendCodeResponse {
+  success: boolean;
+  message: string;
+  expires_in: number;
+}
+
+/** AI 使用次数响应 */
+export interface AIUsageResponse {
+  usage: number;
+  max_free: number;
+  can_use: boolean;
+  is_logged_in: boolean;
+  need_login: boolean;
+}
+
+/** 国家区号 */
+export interface CountryCode {
+  code: string;
+  name: string;
+  flag: string;
+}

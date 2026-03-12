@@ -29,6 +29,13 @@ import {
   SaveItineraryRequest,
   SaveItineraryResponse,
   DeleteItineraryResponse,
+  RegisterRequest,
+  LoginRequest,
+  SocialLoginRequest,
+  SendCodeRequest,
+  AuthResponse,
+  SendCodeResponse,
+  AIUsageResponse,
 } from './types';
 
 /**
@@ -610,4 +617,126 @@ export async function deleteSavedItinerary(
     throw new ApiError(parseErrorResponse(data));
   }
   return data as DeleteItineraryResponse;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Auth API — 用户认证
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** 获取存储的认证 token */
+let _authToken: string | null = null;
+
+export function setAuthToken(token: string | null) {
+  _authToken = token;
+}
+
+export function getAuthToken(): string | null {
+  return _authToken;
+}
+
+function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (_authToken) {
+    headers['Authorization'] = `Bearer ${_authToken}`;
+  }
+  return headers;
+}
+
+/**
+ * 注册
+ */
+export async function register(body: RegisterRequest): Promise<AuthResponse> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/v1/auth/register`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    15_000,
+  );
+  const data = await response.json();
+  if (!response.ok) throw new ApiError(parseErrorResponse(data));
+  return data as AuthResponse;
+}
+
+/**
+ * 登录（邮箱密码 或 手机验证码）
+ */
+export async function login(body: LoginRequest): Promise<AuthResponse> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/v1/auth/login`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    15_000,
+  );
+  const data = await response.json();
+  if (!response.ok) throw new ApiError(parseErrorResponse(data));
+  return data as AuthResponse;
+}
+
+/**
+ * 社交登录
+ */
+export async function socialLogin(body: SocialLoginRequest): Promise<AuthResponse> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/v1/auth/social`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    15_000,
+  );
+  const data = await response.json();
+  if (!response.ok) throw new ApiError(parseErrorResponse(data));
+  return data as AuthResponse;
+}
+
+/**
+ * 发送手机验证码
+ */
+export async function sendSmsCode(body: SendCodeRequest): Promise<SendCodeResponse> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/v1/auth/send-code`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    10_000,
+  );
+  const data = await response.json();
+  if (!response.ok) throw new ApiError(parseErrorResponse(data));
+  return data as SendCodeResponse;
+}
+
+/**
+ * 获取当前用户
+ */
+export async function getMe(): Promise<AuthResponse> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/v1/auth/me`,
+    { method: 'GET', headers: authHeaders() },
+    10_000,
+  );
+  const data = await response.json();
+  if (!response.ok) throw new ApiError(parseErrorResponse(data));
+  return data as AuthResponse;
+}
+
+/**
+ * 退出登录
+ */
+export async function logout(): Promise<{ success: boolean; message: string }> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/v1/auth/logout`,
+    { method: 'POST', headers: authHeaders() },
+    10_000,
+  );
+  const data = await response.json();
+  _authToken = null;
+  return data;
+}
+
+/**
+ * 获取 AI 使用次数
+ */
+export async function getAIUsage(deviceId: string): Promise<AIUsageResponse> {
+  const searchParams = new URLSearchParams({ device_id: deviceId });
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/v1/auth/ai-usage?${searchParams.toString()}`,
+    { method: 'GET', headers: authHeaders() },
+    5_000,
+  );
+  const data = await response.json();
+  if (!response.ok) throw new ApiError(parseErrorResponse(data));
+  return data as AIUsageResponse;
 }
