@@ -18,7 +18,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize, FontWeight, BorderRadius, Shadow } from '@/constants/Theme';
 import { useAuth } from '@/services/auth';
-import { sendSmsCode } from '@/services/api';
+import { sendEmailCode, sendSmsCode } from '@/services/api';
 import { Toast } from '@/components/Toast';
 import { Avatar } from '@/components/Avatar';
 
@@ -46,6 +46,17 @@ const COUNTRY_CODES = [
 type AuthMode = 'login' | 'register';
 type LoginMethod = 'email' | 'phone';
 
+const ENABLE_SMS_LOGIN = false;
+const SOCIAL_LOGIN_CONFIGURED = Boolean(
+  process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID
+  || process.env.EXPO_PUBLIC_FACEBOOK_APP_ID
+  || process.env.EXPO_PUBLIC_INSTAGRAM_APP_ID,
+);
+const ENABLE_SOCIAL_LOGIN = process.env.EXPO_PUBLIC_ENABLE_SOCIAL_LOGIN === 'true' && SOCIAL_LOGIN_CONFIGURED;
+const SOCIAL_LOGIN_DISABLED_REASON = SOCIAL_LOGIN_CONFIGURED
+  ? '社交登录未开启'
+  : '社交登录未配置';
+
 interface AuthScreenProps {
   visible: boolean;
   onClose: () => void;
@@ -67,6 +78,9 @@ export function AuthScreen({ visible, onClose, initialMode = 'login', onSuccess 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [emailCode, setEmailCode] = useState('');
+  const [emailCountdown, setEmailCountdown] = useState(0);
+  const [emailLoginMode, setEmailLoginMode] = useState<'password' | 'code'>('password');
 
   // 手机登录
   const [phone, setPhone] = useState('');
@@ -87,9 +101,53 @@ export function AuthScreen({ visible, onClose, initialMode = 'login', onSuccess 
     setTimeout(() => setToastMessage(''), 3000);
   };
 
+  const isValidEmail = (value: string) => {
+    const candidate = value.trim().toLowerCase();
+    return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(candidate);
+  };
+
+  const normalizePhone = (value: string) => value.replace(/\D/g, '');
+
+  const isValidPhone = (value: string) => {
+    const digits = normalizePhone(value);
+    return digits.length >= 5 && digits.length <= 15;
+  };
+
+  const handleSendEmailCode = useCallback(async () => {
+    if (!isValidEmail(email)) {
+      showToast('邮箱格式不正确');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await sendEmailCode(email);
+      setEmailCountdown(60);
+      showToast('验证码已发送');
+
+      const timer = setInterval(() => {
+        setEmailCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } catch (err: any) {
+      showToast(err.message || '发送失败');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [email, isValidEmail]);
+
   // 发送验证码
   const handleSendCode = useCallback(async () => {
-    if (!phone || phone.length < 5) {
+    if (!ENABLE_SMS_LOGIN) {
+      showToast('短信验证码暂未开放');
+      return;
+    }
+    if (!isValidPhone(phone)) {
       showToast('请输入有效的手机号');
       return;
     }
@@ -124,6 +182,14 @@ export function AuthScreen({ visible, onClose, initialMode = 'login', onSuccess 
       showToast('请输入邮箱和密码');
       return;
     }
+    if (!isValidEmail(email)) {
+      showToast('邮箱格式不正确');
+      return;
+    }
+    if (password.length < 6) {
+      showToast('密码至少 6 位');
+      return;
+    }
 
     setIsLoading(true);
     try {
@@ -142,10 +208,45 @@ export function AuthScreen({ visible, onClose, initialMode = 'login', onSuccess 
     }
   }, [email, password, signIn, onSuccess, onClose]);
 
+  const handleEmailCodeLogin = useCallback(async () => {
+    if (!email || !emailCode) {
+      showToast('请输入邮箱和验证码');
+      return;
+    }
+    if (!isValidEmail(email)) {
+      showToast('邮箱格式不正确');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const result = await signIn({ email, email_code: emailCode });
+      if (result.success) {
+        showToast('登录成功');
+        onSuccess?.();
+        onClose();
+      } else {
+        showToast(result.message || '登录失败');
+      }
+    } catch (err: any) {
+      showToast(err.message || '登录失败');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [email, emailCode, isValidEmail, signIn, onSuccess, onClose]);
+
   // 手机验证码登录
   const handlePhoneLogin = useCallback(async () => {
+    if (!ENABLE_SMS_LOGIN) {
+      showToast('短信验证码暂未开放');
+      return;
+    }
     if (!phone || !smsCode) {
       showToast('请输入手机号和验证码');
+      return;
+    }
+    if (!isValidPhone(phone)) {
+      showToast('手机号格式不正确');
       return;
     }
 
@@ -178,13 +279,29 @@ export function AuthScreen({ visible, onClose, initialMode = 'login', onSuccess 
         showToast('请输入邮箱');
         return;
       }
+      if (!isValidEmail(email)) {
+        showToast('邮箱格式不正确');
+        return;
+      }
       if (password && password !== confirmPassword) {
         showToast('两次密码不一致');
+        return;
+      }
+      if (password && password.length < 6) {
+        showToast('密码至少 6 位');
+        return;
+      }
+      if (!password && !emailCode) {
+        showToast('请输入邮箱验证码');
         return;
       }
     } else {
       if (!phone || !smsCode) {
         showToast('请输入手机号和验证码');
+        return;
+      }
+      if (!isValidPhone(phone)) {
+        showToast('手机号格式不正确');
         return;
       }
     }
@@ -199,6 +316,7 @@ export function AuthScreen({ visible, onClose, initialMode = 'login', onSuccess 
       const result = await signUp({
         name,
         email: loginMethod === 'email' ? email : undefined,
+        email_code: loginMethod === 'email' ? (emailCode || undefined) : undefined,
         phone: loginMethod === 'phone' ? phone : undefined,
         country_code: loginMethod === 'phone' ? countryCode : undefined,
         password: password || undefined,
@@ -220,6 +338,10 @@ export function AuthScreen({ visible, onClose, initialMode = 'login', onSuccess 
 
   // 社交登录
   const handleSocialLogin = useCallback(async (provider: 'google' | 'facebook' | 'instagram') => {
+    if (!ENABLE_SOCIAL_LOGIN) {
+      showToast(SOCIAL_LOGIN_DISABLED_REASON);
+      return;
+    }
     setIsLoading(true);
     try {
       // 实际集成需要使用 expo-auth-session 或对应 SDK
@@ -306,7 +428,7 @@ export function AuthScreen({ visible, onClose, initialMode = 'login', onSuccess 
             )}
 
             {/* 登录方式切换 - 仅登录模式 */}
-            {mode === 'login' && (
+            {mode === 'login' && ENABLE_SMS_LOGIN && (
               <View style={styles.methodTabs}>
                 <TouchableOpacity
                   style={[styles.methodTab, loginMethod === 'email' && styles.methodTabActive]}
@@ -355,24 +477,48 @@ export function AuthScreen({ visible, onClose, initialMode = 'login', onSuccess 
                       </TouchableOpacity>
                     )}
                   </View>
-                  <View style={styles.inputContainer}>
-                    <Ionicons name="lock-closed-outline" size={20} color={Colors.textLight} style={styles.inputIcon} />
-                    <TextInput
-                      style={styles.input}
-                      placeholder={mode === 'login' ? 'Enter your password' : 'Create a password'}
-                      placeholderTextColor={Colors.textLight}
-                      value={password}
-                      onChangeText={setPassword}
-                      secureTextEntry={!showPassword}
-                    />
-                    <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                      <Ionicons
-                        name={showPassword ? 'eye-outline' : 'eye-off-outline'}
-                        size={20}
-                        color={Colors.textLight}
+                  {mode === 'login' && emailLoginMode === 'code' ? (
+                    <View style={styles.inputContainer}>
+                      <Ionicons name="key-outline" size={20} color={Colors.textLight} style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.input}
+                        placeholder="Enter verification code"
+                        placeholderTextColor={Colors.textLight}
+                        value={emailCode}
+                        onChangeText={setEmailCode}
+                        keyboardType="number-pad"
                       />
+                    </View>
+                  ) : (
+                    <View style={styles.inputContainer}>
+                      <Ionicons name="lock-closed-outline" size={20} color={Colors.textLight} style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.input}
+                        placeholder={mode === 'login' ? 'Enter your password' : 'Create a password (optional)'}
+                        placeholderTextColor={Colors.textLight}
+                        value={password}
+                        onChangeText={setPassword}
+                        secureTextEntry={!showPassword}
+                      />
+                      <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                        <Ionicons
+                          name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                          size={20}
+                          color={Colors.textLight}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {mode === 'login' && (
+                    <TouchableOpacity onPress={() => {
+                      setEmailLoginMode(prev => prev === 'password' ? 'code' : 'password');
+                      setEmailCode('');
+                    }}>
+                      <Text style={styles.forgotText}>
+                        {emailLoginMode === 'password' ? 'Use verification code' : 'Use password'}
+                      </Text>
                     </TouchableOpacity>
-                  </View>
+                  )}
                 </View>
 
                 {/* 注册时显示确认密码 */}
@@ -399,12 +545,43 @@ export function AuthScreen({ visible, onClose, initialMode = 'login', onSuccess 
                     </View>
                   </View>
                 )}
+
+                {(mode === 'register' || emailLoginMode === 'code') && (
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Email Code</Text>
+                    <View style={styles.codeInputRow}>
+                      <View style={[styles.inputContainer, styles.codeInput]}>
+                        <Ionicons name="key-outline" size={20} color={Colors.textLight} style={styles.inputIcon} />
+                        <TextInput
+                          style={styles.input}
+                          placeholder="Enter code"
+                          placeholderTextColor={Colors.textLight}
+                          value={emailCode}
+                          onChangeText={setEmailCode}
+                          keyboardType="number-pad"
+                        />
+                      </View>
+                      <TouchableOpacity
+                        style={[styles.sendCodeBtn, emailCountdown > 0 && styles.sendCodeBtnDisabled]}
+                        onPress={handleSendEmailCode}
+                        disabled={isLoading || emailCountdown > 0}
+                      >
+                        <Text style={styles.sendCodeText}>
+                          {emailCountdown > 0 ? `${emailCountdown}s` : 'Send Code'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
               </>
             )}
 
             {/* 手机号登录 */}
-            {mode === 'login' && loginMethod === 'phone' && (
+            {mode === 'login' && ENABLE_SMS_LOGIN && loginMethod === 'phone' && (
               <>
+                {!ENABLE_SMS_LOGIN && (
+                  <Text style={styles.helperText}>短信验证码暂未开放</Text>
+                )}
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>手机号码</Text>
                   <View style={styles.phoneInputRow}>
@@ -479,7 +656,13 @@ export function AuthScreen({ visible, onClose, initialMode = 'login', onSuccess 
               style={styles.primaryBtn}
               onPress={() => {
                 if (mode === 'login') {
-                  loginMethod === 'email' ? handleEmailLogin() : handlePhoneLogin();
+                  if (loginMethod === 'email') {
+                    emailLoginMode === 'code' ? handleEmailCodeLogin() : handleEmailLogin();
+                  } else if (ENABLE_SMS_LOGIN) {
+                    handlePhoneLogin();
+                  } else {
+                    showToast('手机号登录暂未开放');
+                  }
                 } else {
                   handleRegister();
                 }
@@ -510,22 +693,25 @@ export function AuthScreen({ visible, onClose, initialMode = 'login', onSuccess 
             {/* 社交登录 */}
             <View style={styles.socialRow}>
               <TouchableOpacity
-                style={styles.socialBtn}
+                style={[styles.socialBtn, !ENABLE_SOCIAL_LOGIN && styles.socialBtnDisabled]}
                 onPress={() => handleSocialLogin('google')}
-                disabled={isLoading}
+                disabled={isLoading || !ENABLE_SOCIAL_LOGIN}
               >
                 <Text style={styles.socialIcon}>G</Text>
                 <Text style={styles.socialText}>Google</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.socialBtn}
+                style={[styles.socialBtn, !ENABLE_SOCIAL_LOGIN && styles.socialBtnDisabled]}
                 onPress={() => handleSocialLogin('facebook')}
-                disabled={isLoading}
+                disabled={isLoading || !ENABLE_SOCIAL_LOGIN}
               >
                 <Ionicons name="logo-facebook" size={20} color="#1877F2" />
                 <Text style={styles.socialText}>Facebook</Text>
               </TouchableOpacity>
             </View>
+            {!ENABLE_SOCIAL_LOGIN && (
+              <Text style={styles.helperText}>{SOCIAL_LOGIN_DISABLED_REASON}</Text>
+            )}
           </View>
 
           {/* 切换登录/注册 */}
@@ -702,6 +888,11 @@ const styles = StyleSheet.create({
     color: Colors.text,
     marginBottom: Spacing.sm,
   },
+  helperText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.sm,
+  },
   forgotText: {
     fontSize: FontSize.sm,
     color: Colors.primary,
@@ -855,6 +1046,9 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     fontWeight: FontWeight.medium,
     color: Colors.text,
+  },
+  socialBtnDisabled: {
+    opacity: 0.5,
   },
   switchRow: {
     flexDirection: 'row',

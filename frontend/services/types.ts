@@ -389,6 +389,7 @@ export interface DeleteItineraryResponse {
 export interface RegisterRequest {
   name: string;
   email?: string;
+  email_code?: string;
   phone?: string;
   country_code?: string;
   password?: string;
@@ -397,6 +398,7 @@ export interface RegisterRequest {
 /** 登录请求 */
 export interface LoginRequest {
   email?: string;
+  email_code?: string;
   phone?: string;
   country_code?: string;
   password?: string;
@@ -414,8 +416,9 @@ export interface SocialLoginRequest {
 
 /** 发送验证码请求 */
 export interface SendCodeRequest {
-  phone: string;
-  country_code: string;
+  phone?: string;
+  country_code?: string;
+  email?: string;
 }
 
 /** 认证用户 */

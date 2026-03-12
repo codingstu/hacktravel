@@ -453,10 +453,21 @@ export default function ProfileScreen() {
     }
   }, [deviceId]);
 
+  const confirmDeleteItinerary = useCallback((itineraryId: string) => {
+    Alert.alert(
+      t('profile.deleteConfirm'),
+      '',
+      [
+        { text: t('plan.cancel'), style: 'cancel' },
+        { text: t('common.delete'), style: 'destructive', onPress: () => handleDeleteItinerary(itineraryId) },
+      ],
+    );
+  }, [handleDeleteItinerary]);
+
   const handleDeletePress = useCallback((itineraryId: string) => (event: any) => {
     event?.stopPropagation?.();
-    handleDeleteItinerary(itineraryId);
-  }, [handleDeleteItinerary]);
+    confirmDeleteItinerary(itineraryId);
+  }, [confirmDeleteItinerary]);
 
   // ── 空态 / 加载态 / 错误态 ──
   if (viewState === 'loading') {

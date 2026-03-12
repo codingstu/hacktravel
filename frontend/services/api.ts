@@ -706,7 +706,7 @@ export async function socialLogin(body: SocialLoginRequest): Promise<AuthRespons
 }
 
 /**
- * 发送手机验证码
+ * 发送验证码（短信或邮箱）
  */
 export async function sendSmsCode(body: SendCodeRequest): Promise<SendCodeResponse> {
   const response = await fetchWithTimeout(
@@ -717,6 +717,10 @@ export async function sendSmsCode(body: SendCodeRequest): Promise<SendCodeRespon
   const data = await response.json();
   if (!response.ok) throw new ApiError(parseErrorResponse(data));
   return data as SendCodeResponse;
+}
+
+export async function sendEmailCode(email: string): Promise<SendCodeResponse> {
+  return sendSmsCode({ email });
 }
 
 /**
