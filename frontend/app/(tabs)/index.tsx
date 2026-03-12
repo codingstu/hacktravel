@@ -49,6 +49,7 @@ import {
   ApiError,
   fetchPlaceDetail,
   fetchRegionMetadata,
+  fetchSavedItineraryDetail,
   saveItinerary,
 } from '@/services/api';
 import {
@@ -156,7 +157,10 @@ export default function GenerateScreen() {
   const [showAuthModal, setShowAuthModal] = useState(false);
 
   // ── URL 参数（从 Profile 页跳转时传入） ──
-  const params = useLocalSearchParams<{ destination?: string }>();
+  const params = useLocalSearchParams<{ destination?: string; itinerary_id?: string }>();
+
+  const [loadingSavedItinerary, setLoadingSavedItinerary] = useState(false);
+  const loadedItineraryIdRef = useRef<string | null>(null);
 
   // ── Form ──
   const [origin, setOrigin] = useState('');
@@ -177,6 +181,65 @@ export default function GenerateScreen() {
       setDestination(params.destination.trim());
     }
   }, [params.destination]);
+
+  // ── 从 Profile 页跳转：加载已收藏行程详情并进入可编辑态 ──
+  useEffect(() => {
+    const itineraryId = typeof params.itinerary_id === 'string' ? params.itinerary_id.trim() : '';
+    if (!itineraryId) return;
+    if (loadedItineraryIdRef.current === itineraryId) return;
+    loadedItineraryIdRef.current = itineraryId;
+
+    let cancelled = false;
+    (async () => {
+      setLoadingSavedItinerary(true);
+      try {
+        // 确保 device_id 存在
+        let deviceId = await AsyncStorage.getItem('device_id');
+        if (!deviceId) {
+          deviceId = `dev_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+          await AsyncStorage.setItem('device_id', deviceId);
+        }
+
+        const resp = await fetchSavedItineraryDetail(deviceId, itineraryId);
+        if (cancelled) return;
+
+        if (!resp.success || !resp.itinerary) {
+          setToastMessage(resp.message || t('common.error'));
+          return;
+        }
+
+        const saved = resp.itinerary;
+        if (saved.context?.origin) setOrigin(saved.context.origin);
+        if (saved.context?.destination) setDestination(saved.context.destination);
+        if (typeof saved.context?.total_hours === 'number') setHours(String(saved.context.total_hours));
+        if (typeof saved.context?.budget?.amount === 'number') {
+          setBudget(String(Math.round(saved.context.budget.amount)));
+        }
+        if (saved.context?.tags?.length) setSelectedTags(saved.context.tags);
+        if (saved.context?.continent) setSelectedContinent(saved.context.continent);
+        if (typeof saved.context?.sub_region === 'string') setSelectedSubRegion(saved.context.sub_region);
+
+        if (saved.generated) {
+          setResult(saved.generated);
+          setEditableLegs(saved.generated.legs);
+          setViewState('success');
+          setIsEditing(true);
+          setShowAddLeg(false);
+        } else {
+          setToastMessage(t('profile.noItineraryDetails'));
+        }
+      } catch (err: any) {
+        if (__DEV__) console.error('[LoadSavedItinerary]', err?.message);
+        if (!cancelled) setToastMessage(t('common.error'));
+      } finally {
+        if (!cancelled) setLoadingSavedItinerary(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [params.itinerary_id]);
 
   // ── Autocomplete ──
   const [originFocused, setOriginFocused] = useState(false);
@@ -921,9 +984,25 @@ export default function GenerateScreen() {
                     itinerary_id: result.itinerary_id,
                     title: result.title || `${origin.trim()} → ${destination.trim()}`,
                     destination: destination.trim() || 'Trip',
-                    stops: result.legs.length,
+                    stops: editableLegs.length || result.legs.length,
                     days: Math.max(1, Math.round((parseInt(hours, 10) || 48) / 24)),
                     cover_image: getDestinationImage(destination.trim(), 800, 400),
+                    context: {
+                      origin: origin.trim(),
+                      destination: destination.trim() || 'Trip',
+                      total_hours: parseInt(hours, 10) || 48,
+                      budget: {
+                        amount: Math.max(0, parseInt(budget, 10) || 0),
+                        currency: 'CNY',
+                      },
+                      tags: selectedTags,
+                      continent: selectedContinent,
+                      sub_region: selectedSubRegion || undefined,
+                    },
+                    generated: {
+                      ...result,
+                      legs: editableLegs.length ? editableLegs : result.legs,
+                    },
                   });
                   if (resp.success) {
                     setToastMessage(t('profile.savedToast'));

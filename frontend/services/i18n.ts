@@ -201,6 +201,7 @@ const zh: TranslationDict = {
   'profile.planAgain': '重新规划此路线',
   'profile.destination': '目的地',
   'profile.savedAt': '收藏时间',
+  'profile.noItineraryDetails': '暂无路线详情（旧收藏未保存路线明细）',
 
   // ── Watchlist 页 (watchlist.tsx) ──
   'radar.scanning': '正在扫描',
@@ -408,6 +409,7 @@ const en: TranslationDict = {
   'profile.planAgain': 'Plan This Route Again',
   'profile.destination': 'Destination',
   'profile.savedAt': 'Saved at',
+  'profile.noItineraryDetails': 'No route details yet',
 
   // ── Watchlist 页 (watchlist.tsx) ──
   'radar.scanning': 'Scanning',

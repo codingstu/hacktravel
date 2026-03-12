@@ -328,6 +328,21 @@ export interface SavedItinerary {
   saved_at: string;
 }
 
+export interface SavedItineraryContext {
+  origin: string;
+  destination: string;
+  total_hours: number;
+  budget: Money;
+  tags?: string[];
+  continent?: Continent;
+  sub_region?: string;
+}
+
+export interface SavedItineraryDetail extends SavedItinerary {
+  context?: SavedItineraryContext | null;
+  generated?: ItineraryGenerateResponse | null;
+}
+
 /** 已保存行程列表响应 */
 export interface SavedItinerariesResponse {
   itineraries: SavedItinerary[];
@@ -343,6 +358,14 @@ export interface SaveItineraryRequest {
   stops?: number;
   days?: number;
   cover_image?: string;
+  context?: SavedItineraryContext;
+  generated?: ItineraryGenerateResponse;
+}
+
+export interface SavedItineraryDetailResponse {
+  success: boolean;
+  message: string;
+  itinerary?: SavedItineraryDetail | null;
 }
 
 /** 保存行程响应 */

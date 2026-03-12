@@ -26,6 +26,7 @@ import {
   UserPreferencesResponse,
   UserPreferencesRequest,
   SavedItinerariesResponse,
+  SavedItineraryDetailResponse,
   SaveItineraryRequest,
   SaveItineraryResponse,
   DeleteItineraryResponse,
@@ -617,6 +618,26 @@ export async function deleteSavedItinerary(
     throw new ApiError(parseErrorResponse(data));
   }
   return data as DeleteItineraryResponse;
+}
+
+/**
+ * 获取单条已保存行程详情（含可选 legs 等完整信息）
+ */
+export async function fetchSavedItineraryDetail(
+  deviceId: string,
+  itineraryId: string,
+): Promise<SavedItineraryDetailResponse> {
+  const response = await fetchWithTimeout(
+    `${BASE_URL}/v1/profile/itineraries/${encodeURIComponent(itineraryId)}?device_id=${encodeURIComponent(deviceId)}`,
+    { method: 'GET' },
+    10_000,
+  );
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(parseErrorResponse(data));
+  }
+  return data as SavedItineraryDetailResponse;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

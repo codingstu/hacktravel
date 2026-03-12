@@ -18,7 +18,6 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  Image,
   Switch,
   Alert,
   Platform,
@@ -26,6 +25,8 @@ import {
   TextInput,
   Modal,
   Share,
+  ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -54,6 +55,7 @@ import {
   fetchPreferences,
   updatePreferences,
   fetchSavedItineraries,
+  fetchSavedItineraryDetail,
   deleteSavedItinerary,
   updateProfile,
   fetchPriceAlerts,
@@ -63,6 +65,7 @@ import type {
   UserStats,
   UserPreferences,
   SavedItinerary,
+  SavedItineraryDetail,
   PriceAlertItem,
 } from '@/services/types';
 
@@ -109,12 +112,14 @@ export default function ProfileScreen() {
   const [logoutVisible, setLogoutVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
+  // cover_image 加载失败兜底（按 itinerary_id 记录）
+  const [coverImageFailed, setCoverImageFailed] = useState<Record<string, boolean>>({});
+
   // ── 行程详情 Modal ──
   const [detailVisible, setDetailVisible] = useState(false);
-  const [detailItinerary, setDetailItinerary] = useState<SavedItinerary | null>(null);
-
-  // ── 统计Tab ──
-  const [activeStatTab, setActiveStatTab] = useState<'trips' | 'saved' | 'reviews'>('saved');
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailShowTimeline, setDetailShowTimeline] = useState(false);
+  const [detailItinerary, setDetailItinerary] = useState<SavedItineraryDetail | null>(null);
 
   // section refs 用于滚动定位
   const savedSectionRef = useRef<View>(null);
@@ -345,11 +350,34 @@ export default function ProfileScreen() {
     setManageVisible(true);
   }, []);
 
+  const resolveCoverImageUri = useCallback((itinerary: SavedItinerary) => {
+    const fallback = getDestinationImage(itinerary.destination, 800, 400);
+    const candidate = (itinerary.cover_image || '').trim();
+    if (!candidate) return fallback;
+    if (coverImageFailed[itinerary.itinerary_id]) return fallback;
+    return candidate;
+  }, [coverImageFailed]);
+
   // ── 点击行程卡片展示详情 ──
-  const handlePressItinerary = useCallback((itinerary: SavedItinerary) => {
-    setDetailItinerary(itinerary);
+  const handlePressItinerary = useCallback(async (itinerary: SavedItinerary) => {
+    if (!deviceId) return;
     setDetailVisible(true);
-  }, []);
+    setDetailLoading(true);
+    setDetailShowTimeline(false);
+    setDetailItinerary(null);
+    try {
+      const res = await fetchSavedItineraryDetail(deviceId, itinerary.itinerary_id);
+      if (res.success && res.itinerary) {
+        setDetailItinerary(res.itinerary);
+      } else {
+        setDetailItinerary({ ...itinerary, context: null, generated: null });
+      }
+    } catch {
+      setDetailItinerary({ ...itinerary, context: null, generated: null });
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [deviceId]);
 
   // ── 从详情跳回 Plan 页重新规划 ──
   const handlePlanAgain = useCallback((destination: string) => {
@@ -358,14 +386,10 @@ export default function ProfileScreen() {
     router.push({ pathname: '/(tabs)', params: { destination } });
   }, [router]);
 
-  // ── 统计 Tab 点击 ──
-  const handleStatTabPress = useCallback((tab: 'trips' | 'saved' | 'reviews') => {
-    setActiveStatTab(tab);
-    // 滚动到已保存行程区块（saved tab 最常用）
-    if (tab === 'saved' && scrollRef.current) {
-      scrollRef.current.scrollTo({ y: savedSectionY.current, animated: true });
-    }
-  }, []);
+  const handleEditRoute = useCallback((itineraryId: string) => {
+    setDetailVisible(false);
+    router.push({ pathname: '/(tabs)', params: { itinerary_id: itineraryId } });
+  }, [router]);
 
   const handleLanguageSelect = useCallback(() => {
     setLanguageVisible(true);
@@ -511,44 +535,16 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* ── 统计数据栏（可点击） ── */}
+        {/* ── 统计数据栏：仅保留 Saved（避免与收藏列表重复感） ── */}
         <View style={themedStyles.statsRow}>
-          <TouchableOpacity
-            style={[themedStyles.statItem, activeStatTab === 'trips' && themedStyles.statItemActive]}
-            onPress={() => handleStatTabPress('trips')}
-            activeOpacity={0.7}
-          >
-            <Text style={[themedStyles.statNumber, activeStatTab === 'trips' && themedStyles.statNumberActive]}>
-              {stats?.trips || 0}
-            </Text>
-            <Text style={[themedStyles.statLabel, activeStatTab === 'trips' && themedStyles.statLabelActive]}>
-              {t('profile.trips')}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[themedStyles.statItem, activeStatTab === 'saved' && themedStyles.statItemActive]}
-            onPress={() => handleStatTabPress('saved')}
-            activeOpacity={0.7}
-          >
-            <Text style={[themedStyles.statNumber, activeStatTab === 'saved' && themedStyles.statNumberActive]}>
+          <View style={[themedStyles.statItem, themedStyles.statItemActive]}>
+            <Text style={[themedStyles.statNumber, themedStyles.statNumberActive]}>
               {stats?.saved || 0}
             </Text>
-            <Text style={[themedStyles.statLabel, activeStatTab === 'saved' && themedStyles.statLabelActive]}>
+            <Text style={[themedStyles.statLabel, themedStyles.statLabelActive]}>
               {t('profile.saved')}
             </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[themedStyles.statItem, activeStatTab === 'reviews' && themedStyles.statItemActive]}
-            onPress={() => handleStatTabPress('reviews')}
-            activeOpacity={0.7}
-          >
-            <Text style={[themedStyles.statNumber, activeStatTab === 'reviews' && themedStyles.statNumberActive]}>
-              {stats?.reviews || 0}
-            </Text>
-            <Text style={[themedStyles.statLabel, activeStatTab === 'reviews' && themedStyles.statLabelActive]}>
-              {t('profile.reviews')}
-            </Text>
-          </TouchableOpacity>
+          </View>
         </View>
 
         {/* ── Active Price Alerts ── */}
@@ -613,8 +609,12 @@ export default function ProfileScreen() {
               onPress={() => handlePressItinerary(itinerary)}
             >
               <Image
-                source={{ uri: itinerary.cover_image || getDestinationImage(itinerary.destination, 800, 400) }}
+                source={{ uri: resolveCoverImageUri(itinerary) }}
                 style={themedStyles.itineraryImage}
+                resizeMode="cover"
+                onError={() =>
+                  setCoverImageFailed(prev => ({ ...prev, [itinerary.itinerary_id]: true }))
+                }
               />
               <TouchableOpacity
                 style={themedStyles.itineraryBookmark}
@@ -862,49 +862,113 @@ export default function ProfileScreen() {
       <Toast message={toastMessage} onDismiss={() => setToastMessage('')} />
 
       {/* ── 行程详情 Modal ── */}
-      {detailVisible && detailItinerary && (
+      {detailVisible && (
         <Modal transparent visible={detailVisible} animationType="slide">
           <View style={themedStyles.modalOverlay}>
             <View style={themedStyles.modalCardLarge}>
               {/* X 关闭按钮 */}
               <TouchableOpacity
                 style={themedStyles.modalCloseX}
-                onPress={() => setDetailVisible(false)}>
+                onPress={() => {
+                  setDetailVisible(false);
+                  setDetailItinerary(null);
+                  setDetailShowTimeline(false);
+                }}>
                 <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
-              {/* 封面图 */}
-              <Image
-                source={{ uri: detailItinerary.cover_image || getDestinationImage(detailItinerary.destination, 800, 400) }}
-                style={themedStyles.detailCoverImage}
-              />
-              <Text style={themedStyles.modalTitle}>{detailItinerary.title}</Text>
-              <View style={themedStyles.detailMetaRow}>
-                <View style={themedStyles.detailMetaItem}>
-                  <Ionicons name="location-outline" size={16} color={colors.primary} />
-                  <Text style={themedStyles.detailMetaText}>{detailItinerary.destination}</Text>
+
+              {detailLoading && (
+                <View style={{ paddingTop: Spacing.xl, paddingBottom: Spacing.xl, alignItems: 'center' }}>
+                  <ActivityIndicator size="large" color={colors.primary} />
+                  <Text style={[themedStyles.loadingText, { marginTop: Spacing.md }]}>{t('common.loading')}</Text>
                 </View>
-                <View style={themedStyles.detailMetaItem}>
-                  <Ionicons name="flag-outline" size={16} color={colors.primary} />
-                  <Text style={themedStyles.detailMetaText}>{detailItinerary.stops} {t('profile.stops')}</Text>
-                </View>
-                <View style={themedStyles.detailMetaItem}>
-                  <Ionicons name="calendar-outline" size={16} color={colors.primary} />
-                  <Text style={themedStyles.detailMetaText}>{detailItinerary.days} {t('profile.days')}</Text>
-                </View>
-              </View>
-              {detailItinerary.saved_at && (
-                <Text style={themedStyles.detailSavedAt}>
-                  {t('profile.savedAt')}: {new Date(detailItinerary.saved_at).toLocaleDateString()}
-                </Text>
               )}
-              {/* 重新规划按钮 — 唯一 CTA */}
-              <TouchableOpacity
-                style={themedStyles.planAgainBtn}
-                onPress={() => handlePlanAgain(detailItinerary.destination)}
-              >
-                <Ionicons name="sparkles" size={18} color="#fff" />
-                <Text style={themedStyles.planAgainText}>{t('profile.planAgain')}</Text>
-              </TouchableOpacity>
+
+              {!detailLoading && detailItinerary && (
+                <>
+                  {/* 封面图 */}
+                  <Image
+                    source={{ uri: resolveCoverImageUri(detailItinerary) }}
+                    style={themedStyles.detailCoverImage}
+                    resizeMode="cover"
+                    onError={() =>
+                      setCoverImageFailed(prev => ({ ...prev, [detailItinerary.itinerary_id]: true }))
+                    }
+                  />
+                  <Text style={themedStyles.modalTitle}>{detailItinerary.title}</Text>
+
+                  {(() => {
+                    const legs = detailItinerary.generated?.legs ?? [];
+                    const steps = legs.length || detailItinerary.stops;
+                    const days = detailItinerary.days;
+                    return (
+                      <View style={themedStyles.detailMetaRow}>
+                        <View style={themedStyles.detailMetaItem}>
+                          <Ionicons name="location-outline" size={16} color={colors.primary} />
+                          <Text style={themedStyles.detailMetaText}>{detailItinerary.destination}</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={themedStyles.detailMetaItem}
+                          activeOpacity={0.7}
+                          onPress={() => setDetailShowTimeline(v => !v)}
+                        >
+                          <Ionicons name="flag-outline" size={16} color={colors.primary} />
+                          <Text style={themedStyles.detailMetaText}>{steps} {t('profile.stops')}</Text>
+                        </TouchableOpacity>
+                        <View style={themedStyles.detailMetaItem}>
+                          <Ionicons name="calendar-outline" size={16} color={colors.primary} />
+                          <Text style={themedStyles.detailMetaText}>{days} {t('profile.days')}</Text>
+                        </View>
+                      </View>
+                    );
+                  })()}
+
+                  {detailItinerary.saved_at && (
+                    <Text style={themedStyles.detailSavedAt}>
+                      {t('profile.savedAt')}: {new Date(detailItinerary.saved_at).toLocaleDateString()}
+                    </Text>
+                  )}
+
+                  {/* 展开路线时间轴 */}
+                  {detailShowTimeline && (
+                    <View style={{ maxHeight: 240, marginTop: Spacing.md }}>
+                      <ScrollView showsVerticalScrollIndicator={false}>
+                        {(detailItinerary.generated?.legs ?? []).length === 0 ? (
+                          <Text style={[themedStyles.modalEmpty, { textAlign: 'left' }]}>{t('profile.noItineraryDetails')}</Text>
+                        ) : (
+                          (detailItinerary.generated?.legs ?? []).map((leg, idx) => (
+                            <View key={`${idx}-${leg.place.name}`} style={themedStyles.detailLegRow}>
+                              <View style={themedStyles.detailLegDot} />
+                              <View style={{ flex: 1 }}>
+                                <Text style={themedStyles.detailLegTitle}>{leg.place.name}</Text>
+                                <Text style={themedStyles.detailLegSub}>{leg.activity_type}</Text>
+                              </View>
+                            </View>
+                          ))
+                        )}
+                      </ScrollView>
+                    </View>
+                  )}
+
+                  <View style={{ flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.lg }}>
+                    <TouchableOpacity
+                      style={[themedStyles.planAgainBtn, { flex: 1 }]}
+                      onPress={() => handleEditRoute(detailItinerary.itinerary_id)}
+                    >
+                      <Ionicons name="create-outline" size={18} color="#fff" />
+                      <Text style={themedStyles.planAgainText}>{t('plan.editRoute')}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[themedStyles.planAgainBtn, { flex: 1, opacity: 0.9 }]}
+                      onPress={() => handlePlanAgain(detailItinerary.destination)}
+                    >
+                      <Ionicons name="sparkles" size={18} color="#fff" />
+                      <Text style={themedStyles.planAgainText}>{t('profile.planAgain')}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
             </View>
           </View>
         </Modal>
@@ -1393,6 +1457,29 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     color: colors.textLight,
     textAlign: 'center',
     marginBottom: Spacing.md,
+  },
+  detailLegRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
+  detailLegDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
+    marginTop: 6,
+  },
+  detailLegTitle: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.semibold,
+    color: colors.text,
+  },
+  detailLegSub: {
+    fontSize: FontSize.sm,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   planAgainBtn: {
     flexDirection: 'row',
