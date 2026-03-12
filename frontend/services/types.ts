@@ -76,8 +76,10 @@ export interface SourceInfo {
 }
 
 export interface PolicyInfo {
-  privacy_url: string;
-  terms_url: string;
+  is_user_generated: boolean;
+  can_share: boolean;
+  /** 地区感知免责提示，后端下发时优先使用；为空时前端 fallback 本地映射 */
+  disclaimer?: string;
 }
 
 export interface ItineraryGenerateRequest {

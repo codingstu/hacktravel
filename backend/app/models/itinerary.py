@@ -160,6 +160,7 @@ class SourceInfo(BaseModel):
 class PolicyInfo(BaseModel):
     is_user_generated: bool = True
     can_share: bool = True
+    disclaimer: str = Field(default="", description="地区感知免责提示，前端优先展示此字段")
 
 
 class ItineraryGenerateResponse(BaseModel):
