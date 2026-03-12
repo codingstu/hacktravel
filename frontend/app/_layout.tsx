@@ -4,6 +4,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useMemo } from 'react';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import 'react-native-reanimated';
 
 import { ThemeModeProvider, useThemeMode } from '@/services/theme';
@@ -64,8 +65,10 @@ function RootLayoutInner() {
 
 export default function RootLayout() {
   return (
-    <ThemeModeProvider>
-      <RootLayoutInner />
-    </ThemeModeProvider>
+    <SafeAreaProvider>
+      <ThemeModeProvider>
+        <RootLayoutInner />
+      </ThemeModeProvider>
+    </SafeAreaProvider>
   );
 }
