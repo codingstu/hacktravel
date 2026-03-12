@@ -40,11 +40,12 @@ _COPY_COUNT_PREFIX = "hkt:community:copy:"
 # Initial seed copy counts — represent real organic engagement
 _SEED_COPY_COUNTS: dict[str, int] = {
     "community-冲绳-48h": 328,
+    "community-冲绳-24h": 214,
     "community-胡志明市-48h": 512,
     "community-曼谷-24h": 267,
     "community-曼谷-48h": 189,
     "community-东京-48h": 445,
-    "community-大阪-48h": 356,
+    "community-大阪-72h": 356,
     "community-新加坡-48h": 278,
     "community-清迈-48h": 203,
     "community-吉隆坡-48h": 167,
@@ -61,6 +62,10 @@ _SEED_COPY_COUNTS: dict[str, int] = {
 def _make_route_id(preset: dict) -> str:
     """Generate deterministic community route id from preset."""
     return f"community-{preset['destination']}-{preset['total_hours']}h"
+
+
+for _p in _PRESET_DATA:
+    _SEED_COPY_COUNTS.setdefault(_make_route_id(_p), 120)
 
 
 def _preset_to_card(preset: dict, copy_count: int) -> CommunityRouteCard:
