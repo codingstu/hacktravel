@@ -219,9 +219,9 @@ export default function WatchlistScreen() {
       {/* ── Stitch Radar Hero Card ── */}
       <View style={{ paddingTop: insets.top + Spacing.sm, paddingHorizontal: Spacing.lg }}>
         <View style={styles.radarCard}>
-          {/* Decorative rings */}
+          {/* Decorative rings — outermost rotates */}
           <View style={styles.radarRings}>
-            <View style={[styles.radarRing, { width: 200, height: 200 }]} />
+            <Animated.View style={[styles.radarRing, { width: 200, height: 200, transform: [{ rotate: rotateSpin }] }]} />
             <View style={[styles.radarRing, { width: 150, height: 150 }]} />
             <View style={[styles.radarRing, { width: 100, height: 100 }]} />
             <View style={[styles.radarRing, { width: 50, height: 50 }]} />
@@ -712,13 +712,14 @@ const styles = StyleSheet.create({
   },
   quickTags: {
     marginTop: Spacing.sm,
+    gap: Spacing.sm,
   },
   quickTag: {
-    paddingHorizontal: Spacing.md,
+    paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.xs + 2,
     borderRadius: BorderRadius.full,
     backgroundColor: Colors.tagActive.bg,
-    marginRight: Spacing.sm,
+    marginRight: Spacing.xs,
   },
   quickTagActive: {
     backgroundColor: Colors.primary,

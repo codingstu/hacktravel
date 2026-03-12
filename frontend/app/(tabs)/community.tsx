@@ -48,15 +48,9 @@ import type { CommunityRoute, CommunityRouteCard, ItineraryLeg, PlaceDetailRespo
 import { formatMoney, formatMoneyWithCode, getTimezoneLabel } from '@/utils/format';
 import { getDestinationImage } from '@/services/images';
 import { t } from '@/services/i18n';
-
-const ACTIVITY_ICON_MAP: Record<string, { name: string; color: string }> = {
-  food: { name: 'restaurant', color: '#E88A3A' },
-  transit: { name: 'bus', color: '#5B8DEF' },
-  attraction: { name: 'camera', color: '#A96FDB' },
-  rest: { name: 'bed', color: '#6BC5A0' },
-  shopping: { name: 'bag-handle', color: '#E86B8A' },
-  flight: { name: 'airplane', color: '#5B8DEF' },
-};
+import { Toast } from '@/components/Toast';
+import { TravelItemCard } from '@/components/TravelItemCard';
+import { ACTIVITY_ICON_MAP } from '@/constants/activityIcons';
 
 type DataSource = 'api' | 'preset';
 
@@ -84,12 +78,6 @@ export default function CommunityScreen() {
   const [dataSource, setDataSource] = useState<DataSource>('preset');
   const [copyingId, setCopyingId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState('');
-
-  useEffect(() => {
-    if (!toastMessage) return;
-    const timer = setTimeout(() => setToastMessage(''), 2000);
-    return () => clearTimeout(timer);
-  }, [toastMessage]);
 
   // ── Tab & Filter state ──
   const [selectedCategory, setSelectedCategory] = useState<CategoryTab>('hot');
@@ -538,13 +526,7 @@ export default function CommunityScreen() {
         </View>
       </Modal>
 
-      {!!toastMessage && (
-        <View pointerEvents="none" style={styles.toastWrap}>
-          <View style={styles.toastCard}>
-            <Text style={styles.toastText}>{toastMessage}</Text>
-          </View>
-        </View>
-      )}
+      <Toast message={toastMessage} onDismiss={() => setToastMessage('')} />
     </View>
   );
 }
@@ -623,14 +605,16 @@ const RouteCard = React.memo(function RouteCard({
             </View>
           </View>
           <View style={styles.toggleRow}>
-            <Text style={styles.toggleText}>
-              {expanded ? t('guides.hideDetails') : t('guides.viewDetails')}
-            </Text>
-            <Ionicons
-              name={expanded ? 'chevron-up' : 'chevron-down'}
-              size={16}
-              color={Colors.textSecondary}
-            />
+            <View style={styles.toggleChip}>
+              <Text style={styles.toggleText}>
+                {expanded ? t('guides.hideDetails') : t('guides.viewDetails')}
+              </Text>
+              <Ionicons
+                name={expanded ? 'chevron-up' : 'chevron-down'}
+                size={14}
+                color={Colors.primary}
+              />
+            </View>
           </View>
         </TouchableOpacity>
 
@@ -656,7 +640,13 @@ const RouteCard = React.memo(function RouteCard({
                 })()}
 
                 {detail.legs.map((leg, i) => (
-                  <LegRow key={i} leg={leg} isLast={i === detail.legs.length - 1} onPressPlace={onPressPlace} />
+                  <TravelItemCard
+                    key={i}
+                    leg={leg}
+                    isLast={i === detail.legs.length - 1}
+                    variant="compact"
+                    onPressPlace={() => onPressPlace(leg)}
+                  />
                 ))}
 
                 {/* Stitch 操作按钮 */}
@@ -946,17 +936,27 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
   },
   toggleRow: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.divider,
+  },
+  toggleChip: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.primaryLight,
+    borderRadius: BorderRadius.xl,
     paddingVertical: Spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.divider,
-    gap: 4,
+    paddingHorizontal: Spacing.xl,
+    borderWidth: 1,
+    borderColor: Colors.tagActive.border,
   },
   toggleText: {
     fontSize: FontSize.sm,
-    color: Colors.textSecondary,
+    color: Colors.primary,
     fontWeight: FontWeight.medium,
   },
 

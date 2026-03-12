@@ -62,6 +62,11 @@ import {
 import { formatMoney, formatMoneyWithCode, getTimezoneLabel } from '@/utils/format';
 import { HERO_IMAGE, RESULT_CARD_BG, getDestinationImage } from '@/services/images';
 import { t } from '@/services/i18n';
+import { DisclaimerBanner } from '@/components/DisclaimerBanner';
+import { Toast } from '@/components/Toast';
+import { ItinerarySkeleton } from '@/components/SkeletonCard';
+import { TravelItemCard } from '@/components/TravelItemCard';
+import { ACTIVITY_ICON_MAP } from '@/constants/activityIcons';
 import type {
   Continent,
   FeaturedSubRegion,
@@ -96,15 +101,7 @@ function friendlyApiError(err: ApiError): string {
   }
 }
 
-/** 活动类型 → Ionicons 图标映射（替代 emoji） */
-const ACTIVITY_ICON_MAP: Record<string, { name: string; color: string }> = {
-  food: { name: 'restaurant', color: '#E88A3A' },
-  transit: { name: 'bus', color: '#5B8DEF' },
-  attraction: { name: 'camera', color: '#A96FDB' },
-  rest: { name: 'bed', color: '#6BC5A0' },
-  shopping: { name: 'bag-handle', color: '#E86B8A' },
-  flight: { name: 'airplane', color: '#5B8DEF' },
-};
+// ACTIVITY_ICON_MAP 已提取到 @/constants/activityIcons.ts
 
 /** 随机加载文案 key — 仅在 AI 生成时展示 */
 const LOADING_QUIP_KEYS = [
@@ -684,10 +681,13 @@ export default function GenerateScreen() {
             <Text style={styles.loadingQuip}>{t('common.loading')}</Text>
           )}
 
-          {/* DURATION & BUDGET */}
+          {/* DURATION & BUDGET — 增强可交互视觉反馈 */}
           <View style={styles.paramRow}>
             <View style={styles.paramItem}>
-              <Text style={styles.fieldLabel}>{t('plan.durationLabel')}</Text>
+              <View style={styles.paramLabelRow}>
+                <Ionicons name="time-outline" size={14} color={Colors.primary} />
+                <Text style={styles.fieldLabel}>{t('plan.durationLabel')}</Text>
+              </View>
               <View style={styles.paramInputWrap}>
                 <TextInput
                   style={styles.paramInput}
@@ -702,7 +702,10 @@ export default function GenerateScreen() {
             </View>
             <View style={styles.paramDivider} />
             <View style={styles.paramItem}>
-              <Text style={styles.fieldLabel}>{t('plan.budgetLabel')}</Text>
+              <View style={styles.paramLabelRow}>
+                <Ionicons name="wallet-outline" size={14} color={Colors.primary} />
+                <Text style={styles.fieldLabel}>{t('plan.budgetLabel')}</Text>
+              </View>
               <View style={styles.paramInputWrap}>
                 <Text style={styles.paramPrefix}>¥</Text>
                 <TextInput
@@ -759,6 +762,9 @@ export default function GenerateScreen() {
             <Text style={styles.loadingQuip}>{loadingQuip}</Text>
           )}
         </View>
+
+        {/* ── 骨架屏加载态 ── */}
+        {viewState === 'loading' && <ItinerarySkeleton />}
 
         {/* ── 错误态 ── */}
         {viewState === 'error' && (
@@ -1019,6 +1025,12 @@ export default function GenerateScreen() {
                 {t('plan.openMaps', { count: String(result.map.waypoints_count) })}
               </Text>
             </TouchableOpacity>
+
+            {/* 地区感知免责提示 */}
+            <DisclaimerBanner
+              continent={selectedContinent}
+              serverDisclaimer={result.policy?.disclaimer}
+            />
           </View>
         )}
 
@@ -1178,13 +1190,7 @@ export default function GenerateScreen() {
         </View>
       </Modal>
 
-    {!!toastMessage && (
-      <View pointerEvents="none" style={styles.toastWrap}>
-        <View style={styles.toastCard}>
-          <Text style={styles.toastText}>{toastMessage}</Text>
-        </View>
-      </View>
-    )}
+    <Toast message={toastMessage} onDismiss={() => setToastMessage('')} />
   </KeyboardAvoidingView>
   );
 }
@@ -1489,6 +1495,12 @@ const styles = StyleSheet.create({
   },
   paramItem: {
     flex: 1,
+  },
+  paramLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginBottom: Spacing.xs,
   },
   paramDivider: {
     width: 1,

@@ -45,6 +45,7 @@ import {
 import { t, setLocale } from '@/services/i18n';
 import { getDestinationImage } from '@/services/images';
 import { useThemeMode } from '@/services/theme';
+import { Toast } from '@/components/Toast';
 import {
   fetchProfile,
   fetchProfileStats,
@@ -215,12 +216,6 @@ export default function ProfileScreen() {
       loadData();
     }, [loadData])
   );
-
-  useEffect(() => {
-    if (!toastMessage) return;
-    const timer = setTimeout(() => setToastMessage(''), 1500);
-    return () => clearTimeout(timer);
-  }, [toastMessage]);
 
   const themedStyles = useMemo(() => createStyles(colors), [colors]);
 
@@ -557,14 +552,14 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
         {alerts.length === 0 ? (
-          <View style={[themedStyles.alertCard, Shadow.sm]}>
-            <View style={themedStyles.alertIconWrap}>
-              <Ionicons name="notifications-outline" size={22} color={colors.primary} />
-            </View>
-            <View style={themedStyles.alertContent}>
-              <Text style={themedStyles.alertRoute}>{t('profile.noAlerts')}</Text>
-              <Text style={themedStyles.alertTarget}>{t('profile.setEmailHint')}</Text>
-            </View>
+          <View style={[themedStyles.alertCard, themedStyles.emptyAlertCard, Shadow.sm]}>
+            <Ionicons name="notifications-off-outline" size={32} color={colors.textLight} />
+            <Text style={themedStyles.emptyAlertTitle}>{t('profile.noAlerts')}</Text>
+            <Text style={themedStyles.emptyAlertDesc}>{t('profile.setEmailHint')}</Text>
+            <TouchableOpacity style={themedStyles.emptyAlertBtn} onPress={() => router.push('/(tabs)/watchlist')}>
+              <Ionicons name="add-circle-outline" size={16} color={colors.primary} />
+              <Text style={themedStyles.emptyAlertBtnText}>{t('profile.goSetAlert')}</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           alerts.slice(0, 1).map(alert => (
@@ -857,19 +852,19 @@ export default function ProfileScreen() {
         </Modal>
       )}
 
-      {!!toastMessage && (
-        <View pointerEvents="none" style={themedStyles.toastWrap}>
-          <View style={themedStyles.toastCard}>
-            <Text style={themedStyles.toastText}>{toastMessage}</Text>
-          </View>
-        </View>
-      )}
+      <Toast message={toastMessage} onDismiss={() => setToastMessage('')} />
 
       {/* ── 行程详情 Modal ── */}
       {detailVisible && detailItinerary && (
         <Modal transparent visible={detailVisible} animationType="slide">
           <View style={themedStyles.modalOverlay}>
             <View style={themedStyles.modalCardLarge}>
+              {/* X 关闭按钮 */}
+              <TouchableOpacity
+                style={themedStyles.modalCloseX}
+                onPress={() => setDetailVisible(false)}>
+                <Ionicons name="close" size={24} color={colors.text} />
+              </TouchableOpacity>
               {/* 封面图 */}
               <Image
                 source={{ uri: detailItinerary.cover_image || getDestinationImage(detailItinerary.destination, 800, 400) }}
@@ -895,16 +890,13 @@ export default function ProfileScreen() {
                   {t('profile.savedAt')}: {new Date(detailItinerary.saved_at).toLocaleDateString()}
                 </Text>
               )}
-              {/* 重新规划按钮 */}
+              {/* 重新规划按钮 — 唯一 CTA */}
               <TouchableOpacity
                 style={themedStyles.planAgainBtn}
                 onPress={() => handlePlanAgain(detailItinerary.destination)}
               >
                 <Ionicons name="sparkles" size={18} color="#fff" />
                 <Text style={themedStyles.planAgainText}>{t('profile.planAgain')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={themedStyles.modalCancel} onPress={() => setDetailVisible(false)}>
-                <Text style={themedStyles.modalCancelText}>{t('common.close')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1104,6 +1096,18 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderRadius: BorderRadius.xl,
     padding: Spacing.xl,
   },
+  modalCloseX: {
+    position: 'absolute',
+    top: Spacing.md,
+    right: Spacing.md,
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.full,
+    backgroundColor: colors.surfaceElevated,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
   modalTitle: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
@@ -1176,6 +1180,40 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     alignItems: 'center',
     padding: Spacing.lg,
     marginBottom: Spacing.lg,
+  },
+  emptyAlertCard: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    paddingVertical: Spacing.xxl,
+    gap: Spacing.sm,
+  },
+  emptyAlertTitle: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.semibold,
+    color: colors.text,
+    marginTop: Spacing.xs,
+  },
+  emptyAlertDesc: {
+    fontSize: FontSize.sm,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  emptyAlertBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: colors.primaryLight,
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    marginTop: Spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.tagActive?.border ?? colors.border,
+  },
+  emptyAlertBtnText: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.medium,
+    color: colors.primary,
   },
   alertIconWrap: {
     backgroundColor: colors.primaryLight,
