@@ -27,6 +27,7 @@ import {
   Share,
   ActivityIndicator,
   Image,
+  type ImageSourcePropType,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -49,6 +50,7 @@ import { useThemeMode } from '@/services/theme';
 import { useAuth } from '@/services/auth';
 import { Toast } from '@/components/Toast';
 import { Avatar } from '@/components/Avatar';
+import { AuthScreen } from '@/components/AuthScreen';
 import {
   fetchProfile,
   fetchProfileStats,
@@ -78,6 +80,8 @@ const CURRENCY_OPTIONS = ['USD', 'CNY', 'JPY', 'EUR', 'GBP'];
 
 type ViewState = 'idle' | 'loading' | 'error';
 
+const LOCAL_COVER_FALLBACK: ImageSourcePropType = require('../../assets/images/splash-icon.png');
+
 // 简单的设备 ID 生成器
 const getDeviceId = async () => {
   let deviceId = await AsyncStorage.getItem('device_id');
@@ -93,7 +97,7 @@ export default function ProfileScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const { colors, setMode } = useThemeMode();
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { user, isLoggedIn, isLoading: authLoading, signOut } = useAuth();
 
   const [viewState, setViewState] = useState<ViewState>('loading');
   const [refreshing, setRefreshing] = useState(false);
@@ -110,6 +114,7 @@ export default function ProfileScreen() {
   const [languageVisible, setLanguageVisible] = useState(false);
   const [currencyVisible, setCurrencyVisible] = useState(false);
   const [logoutVisible, setLogoutVisible] = useState(false);
+  const [authVisible, setAuthVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
   // cover_image 加载失败兜底（按 itinerary_id 记录）
@@ -305,23 +310,17 @@ export default function ProfileScreen() {
     }
   }, [deviceId]);
 
-  const handleSettings = useCallback(() => {
-    // 滚动到偏好区块
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo({ y: 900, animated: true });
-    }
-  }, []);
-
   const handleLogout = useCallback(() => {
     setLogoutVisible(true);
+  }, []);
+
+  const handleOpenAuth = useCallback(() => {
+    setAuthVisible(true);
   }, []);
 
   const confirmLogout = useCallback(async () => {
     // 调用 auth 服务退出登录
     await signOut();
-    // 清除本地设备 ID（适用于匿名用户）
-    await AsyncStorage.removeItem('device_id');
-    setDeviceId('');
     setProfile(null);
     setStats(null);
     setPreferences(null);
@@ -350,12 +349,13 @@ export default function ProfileScreen() {
     setManageVisible(true);
   }, []);
 
-  const resolveCoverImageUri = useCallback((itinerary: SavedItinerary) => {
-    const fallback = getDestinationImage(itinerary.destination, 800, 400);
+  const resolveCoverImageSource = useCallback((itinerary: SavedItinerary): ImageSourcePropType => {
+    if (coverImageFailed[itinerary.itinerary_id]) return LOCAL_COVER_FALLBACK;
+    const fallbackUri = getDestinationImage(itinerary.destination, 800, 400);
     const candidate = (itinerary.cover_image || '').trim();
-    if (!candidate) return fallback;
-    if (coverImageFailed[itinerary.itinerary_id]) return fallback;
-    return candidate;
+    const uri = candidate || fallbackUri;
+    if (!uri) return LOCAL_COVER_FALLBACK;
+    return { uri };
   }, [coverImageFailed]);
 
   // ── 点击行程卡片展示详情 ──
@@ -453,6 +453,11 @@ export default function ProfileScreen() {
     }
   }, [deviceId]);
 
+  const handleDeletePress = useCallback((itineraryId: string) => (event: any) => {
+    event?.stopPropagation?.();
+    handleDeleteItinerary(itineraryId);
+  }, [handleDeleteItinerary]);
+
   // ── 空态 / 加载态 / 错误态 ──
   if (viewState === 'loading') {
     return (
@@ -486,13 +491,19 @@ export default function ProfileScreen() {
     <View style={[themedStyles.container, { paddingTop: insets.top }]}>
       {/* ── 顶部标题栏 ── */}
       <View style={themedStyles.header}>
-        <TouchableOpacity onPress={handleSettings} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Ionicons name="settings-outline" size={24} color={colors.primary} />
-        </TouchableOpacity>
+        <View style={{ width: 24, height: 24 }} />
         <Text style={themedStyles.headerTitle}>{t('profile.title')}</Text>
-        <TouchableOpacity onPress={handleLogout} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Ionicons name="log-out-outline" size={24} color={colors.primary} />
-        </TouchableOpacity>
+        {authLoading ? (
+          <View style={{ width: 24, height: 24 }} />
+        ) : isLoggedIn ? (
+          <TouchableOpacity onPress={handleLogout} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="log-out-outline" size={24} color={colors.primary} />
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity onPress={handleOpenAuth} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="log-in-outline" size={24} color={colors.primary} />
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView
@@ -609,7 +620,7 @@ export default function ProfileScreen() {
               onPress={() => handlePressItinerary(itinerary)}
             >
               <Image
-                source={{ uri: resolveCoverImageUri(itinerary) }}
+                source={resolveCoverImageSource(itinerary)}
                 style={themedStyles.itineraryImage}
                 resizeMode="cover"
                 onError={() =>
@@ -618,7 +629,7 @@ export default function ProfileScreen() {
               />
               <TouchableOpacity
                 style={themedStyles.itineraryBookmark}
-                onPress={() => handleDeleteItinerary(itinerary.itinerary_id)}
+                onPress={handleDeletePress(itinerary.itinerary_id)}
               >
                 <Ionicons name="bookmark" size={20} color={colors.primary} />
               </TouchableOpacity>
@@ -774,7 +785,7 @@ export default function ProfileScreen() {
                       </Text>
                       <TouchableOpacity
                         style={themedStyles.deleteInline}
-                        onPress={() => handleDeleteItinerary(itinerary.itinerary_id)}
+                        onPress={handleDeletePress(itinerary.itinerary_id)}
                       >
                         <Text style={themedStyles.deleteInlineText}>{t('common.delete')}</Text>
                       </TouchableOpacity>
@@ -788,6 +799,13 @@ export default function ProfileScreen() {
             </View>
           </View>
         </Modal>
+      )}
+
+      {authVisible && (
+        <AuthScreen
+          visible={authVisible}
+          onClose={() => setAuthVisible(false)}
+        />
       )}
 
       {languageVisible && (
@@ -888,7 +906,7 @@ export default function ProfileScreen() {
                 <>
                   {/* 封面图 */}
                   <Image
-                    source={{ uri: resolveCoverImageUri(detailItinerary) }}
+                    source={resolveCoverImageSource(detailItinerary)}
                     style={themedStyles.detailCoverImage}
                     resizeMode="cover"
                     onError={() =>
