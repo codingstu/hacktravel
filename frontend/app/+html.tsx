@@ -59,4 +59,27 @@ body {
     padding-left: constant(safe-area-inset-left);
   }
 }
+
+/* 统一 Web 输入框体验：去除浏览器默认蓝框，保持容器样式主导 */
+input,
+textarea {
+  -webkit-appearance: none;
+  appearance: none;
+  outline: none;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  font: inherit;
+  line-height: 1.4;
+}
+
+input {
+  height: 100%;
+}
+
+input:focus,
+textarea:focus {
+  outline: none;
+  box-shadow: none;
+}
 `;

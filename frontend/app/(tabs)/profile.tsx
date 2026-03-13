@@ -138,6 +138,12 @@ export default function ProfileScreen() {
   const [editCountries, setEditCountries] = useState('0');
 
   const loadData = useCallback(async (isRefresh = false) => {
+    if (!isLoggedIn) {
+      setViewState('idle');
+      setRefreshing(false);
+      return;
+    }
+
     if (isRefresh) setRefreshing(true);
     else setViewState('loading');
 
@@ -221,14 +227,31 @@ export default function ProfileScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [setMode]);
+  }, [isLoggedIn, setMode]);
 
   // ── 每次 Tab 获得焦点时刷新数据（修复从 Plan 页保存行程后切到 Profile 不刷新的问题）──
   useFocusEffect(
     useCallback(() => {
-      loadData();
-    }, [loadData])
+      if (isLoggedIn) {
+        loadData();
+        return;
+      }
+      setViewState('idle');
+      setProfile(null);
+      setStats(null);
+      setPreferences(null);
+      setItineraries([]);
+      setAlerts([]);
+    }, [isLoggedIn, loadData])
   );
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!isLoggedIn) {
+      setAuthVisible(true);
+      setLogoutVisible(false);
+    }
+  }, [authLoading, isLoggedIn]);
 
   const themedStyles = useMemo(() => createStyles(colors), [colors]);
 
@@ -318,17 +341,26 @@ export default function ProfileScreen() {
     setAuthVisible(true);
   }, []);
 
+  const handleAuthSuccess = useCallback(async () => {
+    setAuthVisible(false);
+    await loadData();
+  }, [loadData]);
+
   const confirmLogout = useCallback(async () => {
-    // 调用 auth 服务退出登录
     await signOut();
     setProfile(null);
     setStats(null);
     setPreferences(null);
     setItineraries([]);
     setAlerts([]);
+    setCoverImageFailed({});
+    setDetailVisible(false);
+    setDetailItinerary(null);
+    setDetailShowTimeline(false);
     setLogoutVisible(false);
-    await loadData();
-  }, [loadData, signOut]);
+    setViewState('idle');
+    setAuthVisible(true);
+  }, [signOut]);
 
   const handleViewAllAlerts = useCallback(async () => {
     if (!deviceId) return;
@@ -494,6 +526,37 @@ export default function ProfileScreen() {
             </Text>
           </TouchableOpacity>
         </View>
+      </View>
+    );
+  }
+
+  if (!authLoading && !isLoggedIn) {
+    return (
+      <View style={[themedStyles.container, { paddingTop: insets.top }]}>
+        <View style={themedStyles.header}>
+          <View style={{ width: 24, height: 24 }} />
+          <Text style={themedStyles.headerTitle}>{t('profile.title')}</Text>
+          <TouchableOpacity onPress={handleOpenAuth} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="log-in-outline" size={24} color={colors.primary} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={themedStyles.centerContent}>
+          <Ionicons name="person-circle-outline" size={64} color={colors.textLight} />
+          <Text style={themedStyles.loggedOutTitle}>请先登录查看个人中心</Text>
+          <Text style={themedStyles.loggedOutHint}>登录后可查看收藏行程、偏好设置与价格提醒</Text>
+          <TouchableOpacity style={themedStyles.loggedOutBtn} onPress={handleOpenAuth}>
+            <Text style={themedStyles.loggedOutBtnText}>登录 / 注册</Text>
+          </TouchableOpacity>
+        </View>
+
+        <AuthScreen
+          visible={authVisible}
+          onClose={() => setAuthVisible(false)}
+          onSuccess={handleAuthSuccess}
+        />
+
+        <Toast message={toastMessage} onDismiss={() => setToastMessage('')} />
       </View>
     );
   }
@@ -816,6 +879,7 @@ export default function ProfileScreen() {
         <AuthScreen
           visible={authVisible}
           onClose={() => setAuthVisible(false)}
+          onSuccess={handleAuthSuccess}
         />
       )}
 
@@ -1020,6 +1084,31 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   loadingText: {
     fontSize: FontSize.md,
     color: colors.textSecondary,
+  },
+  loggedOutTitle: {
+    marginTop: Spacing.md,
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.semibold,
+    color: colors.text,
+  },
+  loggedOutHint: {
+    marginTop: Spacing.xs,
+    fontSize: FontSize.sm,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    paddingHorizontal: Spacing.xl,
+  },
+  loggedOutBtn: {
+    marginTop: Spacing.lg,
+    backgroundColor: colors.primary,
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: Spacing.xxl,
+    paddingVertical: Spacing.md,
+  },
+  loggedOutBtnText: {
+    color: colors.textOnPrimary,
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.semibold,
   },
   errorText: {
     fontSize: FontSize.md,

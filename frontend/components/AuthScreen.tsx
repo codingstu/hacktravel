@@ -468,12 +468,51 @@ export function AuthScreen({ visible, onClose, initialMode = 'login', onSuccess 
                   </View>
                 </View>
 
+                {mode === 'login' && (
+                  <View style={styles.emailModeTabs}>
+                    <TouchableOpacity
+                      style={[styles.emailModeTab, emailLoginMode === 'password' && styles.emailModeTabActive]}
+                      onPress={() => {
+                        setEmailLoginMode('password');
+                        setEmailCode('');
+                      }}
+                    >
+                      <Text style={[styles.emailModeTabText, emailLoginMode === 'password' && styles.emailModeTabTextActive]}>
+                        密码登录
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.emailModeTab, emailLoginMode === 'code' && styles.emailModeTabActive]}
+                      onPress={() => {
+                        setEmailLoginMode('code');
+                        setPassword('');
+                      }}
+                    >
+                      <Text style={[styles.emailModeTabText, emailLoginMode === 'code' && styles.emailModeTabTextActive]}>
+                        验证码登录
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
                 <View style={styles.inputGroup}>
                   <View style={styles.labelRow}>
-                    <Text style={styles.inputLabel}>Password</Text>
+                    <Text style={styles.inputLabel}>{emailLoginMode === 'code' ? 'Verification Code' : 'Password'}</Text>
                     {mode === 'login' && (
-                      <TouchableOpacity>
-                        <Text style={styles.forgotText}>Forgot Password?</Text>
+                      <TouchableOpacity
+                        onPress={() => {
+                          if (emailLoginMode === 'password') {
+                            setEmailLoginMode('code');
+                            setPassword('');
+                            return;
+                          }
+                          setEmailLoginMode('password');
+                          setEmailCode('');
+                        }}
+                      >
+                        <Text style={styles.forgotText}>
+                          {emailLoginMode === 'password' ? 'Forgot Password? Use Code' : 'Use Password'}
+                        </Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -508,16 +547,6 @@ export function AuthScreen({ visible, onClose, initialMode = 'login', onSuccess 
                         />
                       </TouchableOpacity>
                     </View>
-                  )}
-                  {mode === 'login' && (
-                    <TouchableOpacity onPress={() => {
-                      setEmailLoginMode(prev => prev === 'password' ? 'code' : 'password');
-                      setEmailCode('');
-                    }}>
-                      <Text style={styles.forgotText}>
-                        {emailLoginMode === 'password' ? 'Use verification code' : 'Use password'}
-                      </Text>
-                    </TouchableOpacity>
                   )}
                 </View>
 
@@ -905,16 +934,47 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     paddingHorizontal: Spacing.md,
     height: 52,
+    minHeight: 52,
     borderWidth: 1,
     borderColor: Colors.border,
+    overflow: 'hidden',
   },
   inputIcon: {
     marginRight: Spacing.sm,
   },
   input: {
     flex: 1,
+    height: '100%',
     fontSize: FontSize.md,
     color: Colors.text,
+    paddingVertical: Platform.OS === 'web' ? 0 : Spacing.sm,
+  },
+  emailModeTabs: {
+    flexDirection: 'row',
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.md,
+    padding: 4,
+    marginBottom: Spacing.md,
+  },
+  emailModeTab: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: BorderRadius.sm,
+    paddingVertical: Spacing.sm,
+  },
+  emailModeTabActive: {
+    backgroundColor: Colors.surface,
+    ...Shadow.sm,
+  },
+  emailModeTabText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    fontWeight: FontWeight.medium,
+  },
+  emailModeTabTextActive: {
+    color: Colors.primary,
+    fontWeight: FontWeight.semibold,
   },
   phoneInputRow: {
     flexDirection: 'row',
