@@ -716,7 +716,7 @@ export async function sendSmsCode(body: SendCodeRequest): Promise<SendCodeRespon
   const response = await fetchWithTimeout(
     `${BASE_URL}/v1/auth/send-code`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
-    20_000,
+    25_000,
   );
   const data = await response.json();
   if (!response.ok) throw new ApiError(parseErrorResponse(data));
