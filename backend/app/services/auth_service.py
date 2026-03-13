@@ -334,6 +334,14 @@ class AuthService:
         message["To"] = to_email
         message.set_content(f"你的登录验证码是 {code}，5 分钟内有效。")
 
+        use_ssl = settings.SMTP_PORT == 465
+        if use_ssl:
+            with smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as smtp:
+                if settings.SMTP_USER and settings.SMTP_PASSWORD:
+                    smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                smtp.send_message(message)
+            return
+
         with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as smtp:
             if settings.SMTP_USE_TLS:
                 smtp.starttls()
