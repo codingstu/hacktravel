@@ -14,6 +14,7 @@ import logging
 from fastapi import APIRouter, Header, Query, Request
 from typing import Optional
 
+from app.core.exceptions import HKTError
 from app.models.auth import (
     RegisterRequest,
     LoginRequest,
@@ -128,8 +129,9 @@ async def send_code(body: SendCodeRequest, request: Request) -> SendCodeResponse
             await auth_service.send_email_code(body.email)
         else:
             await auth_service.send_sms_code(body.phone or "", body.country_code or "+86")
+    except HKTError:
+        raise
     except Exception as exc:
-        from app.core.exceptions import HKTError
         request_id = getattr(request.state, "request_id", None)
         logger.exception("send-code failed: %s", exc)
         raise HKTError(
