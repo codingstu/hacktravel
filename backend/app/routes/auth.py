@@ -129,8 +129,18 @@ async def send_code(body: SendCodeRequest, request: Request) -> SendCodeResponse
             await auth_service.send_email_code(body.email)
         else:
             await auth_service.send_sms_code(body.phone or "", body.country_code or "+86")
-    except HKTError:
-        raise
+    except HKTError as exc:
+        request_id = getattr(request.state, "request_id", None)
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        if detail.get("request_id"):
+            raise
+        raise HKTError(
+            exc.status_code,
+            detail.get("error_code", "HKT_503_AUTH_CODE_UNAVAILABLE"),
+            detail.get("message", "验证码服务暂时不可用，请稍后重试"),
+            request_id=request_id,
+            retry_after=detail.get("retry_after"),
+        )
     except Exception as exc:
         request_id = getattr(request.state, "request_id", None)
         logger.exception("send-code failed: %s", exc)

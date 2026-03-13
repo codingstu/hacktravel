@@ -16,6 +16,7 @@ import asyncio
 import hashlib
 import logging
 import secrets
+import socket
 import string
 import time
 import uuid
@@ -346,20 +347,50 @@ class AuthService:
         message["To"] = to_email
         message.set_content(f"你的登录验证码是 {code}，5 分钟内有效。")
 
-        use_ssl = settings.SMTP_PORT == 465
-        if use_ssl:
-            with smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as smtp:
+        timeout = max(5, int(settings.SMTP_TIMEOUT_SECONDS))
+        retries = max(1, int(settings.SMTP_MAX_RETRIES))
+
+        def _send_once(port: int, use_ssl: bool) -> None:
+            if use_ssl:
+                with smtplib.SMTP_SSL(settings.SMTP_HOST, port, timeout=timeout) as smtp:
+                    if settings.SMTP_USER and settings.SMTP_PASSWORD:
+                        smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                    smtp.send_message(message)
+                return
+
+            with smtplib.SMTP(settings.SMTP_HOST, port, timeout=timeout) as smtp:
+                if settings.SMTP_USE_TLS:
+                    smtp.starttls()
                 if settings.SMTP_USER and settings.SMTP_PASSWORD:
                     smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
                 smtp.send_message(message)
-            return
 
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as smtp:
-            if settings.SMTP_USE_TLS:
-                smtp.starttls()
-            if settings.SMTP_USER and settings.SMTP_PASSWORD:
-                smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            smtp.send_message(message)
+        last_error: Exception | None = None
+        prefer_ssl = settings.SMTP_PORT == 465
+        mode_sequence = [(settings.SMTP_PORT, prefer_ssl)]
+        if settings.SMTP_PORT == 465:
+            mode_sequence.append((587, False))
+
+        for attempt in range(retries):
+            for port, use_ssl in mode_sequence:
+                try:
+                    _send_once(port, use_ssl)
+                    return
+                except (TimeoutError, socket.timeout, smtplib.SMTPServerDisconnected, OSError) as exc:
+                    last_error = exc
+                    logger.warning(
+                        "SMTP send attempt failed (attempt=%s, host=%s, port=%s, ssl=%s): %s",
+                        attempt + 1,
+                        settings.SMTP_HOST,
+                        port,
+                        use_ssl,
+                        exc,
+                    )
+                    continue
+
+        if last_error is not None:
+            raise last_error
+        raise TimeoutError("SMTP send failed without specific error")
 
     # ── Token 验证 ──
 

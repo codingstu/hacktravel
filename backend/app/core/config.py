@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     SMTP_SENDER: str = ""
     SMTP_USE_TLS: bool = True
+    SMTP_TIMEOUT_SECONDS: int = 30
+    SMTP_MAX_RETRIES: int = 2
 
     # ── Database ─────────────────────────────────────────
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/hacktravel"
