@@ -181,7 +181,7 @@ async function fetchWithTimeout(
   } catch (err: any) {
     // 区分超时 vs 网络不可达
     if (err?.name === 'AbortError') {
-      throw err; // 超时，上层会处理为 modelTimeout
+      throw new Error('请求超时，请稍后重试');
     }
     // TypeError: Network request failed — 典型的连接失败（手机访问不到后端）
     if (__DEV__) {
@@ -712,7 +712,7 @@ export async function sendSmsCode(body: SendCodeRequest): Promise<SendCodeRespon
   const response = await fetchWithTimeout(
     `${BASE_URL}/v1/auth/send-code`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
-    10_000,
+    20_000,
   );
   const data = await response.json();
   if (!response.ok) throw new ApiError(parseErrorResponse(data));
