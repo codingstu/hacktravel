@@ -23,6 +23,7 @@ from typing import Optional
 
 import smtplib
 from email.message import EmailMessage
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 import redis.asyncio as aioredis
 
@@ -307,7 +308,11 @@ class AuthService:
 
         email_hash = _hash(email)
         code = _generate_sms_code()
-        await self.redis.set(_KEY_EMAIL_CODE.format(email_hash), code, ex=SMS_CODE_TTL)
+        try:
+            await self.redis.set(_KEY_EMAIL_CODE.format(email_hash), code, ex=SMS_CODE_TTL)
+        except RedisConnectionError as exc:
+            logger.exception("Redis unavailable while saving email code: %s", exc)
+            raise HKTError(503, "HKT_503_AUTH_CACHE_UNAVAILABLE", "验证码缓存服务暂时不可用")
 
         if not settings.SMTP_HOST or not settings.SMTP_SENDER:
             if settings.DEBUG:
@@ -315,7 +320,14 @@ class AuthService:
                 return code
             raise HKTError(503, "HKT_503_EMAIL_SERVICE_UNAVAILABLE", "邮箱验证码服务未配置")
 
-        await asyncio.to_thread(self._send_email, email, code)
+        try:
+            await asyncio.to_thread(self._send_email, email, code)
+        except smtplib.SMTPException as exc:
+            logger.exception("SMTP failed while sending email code: %s", exc)
+            raise HKTError(503, "HKT_503_EMAIL_TRANSPORT_UNAVAILABLE", "邮件网关暂时不可用")
+        except TimeoutError as exc:
+            logger.exception("SMTP timeout while sending email code: %s", exc)
+            raise HKTError(504, "HKT_504_EMAIL_TIMEOUT", "邮件发送超时，请稍后重试")
         return code
 
     async def verify_email_code(self, email: str, code: str) -> bool:
