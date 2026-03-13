@@ -367,9 +367,14 @@ class AuthService:
 
         last_error: Exception | None = None
         prefer_ssl = settings.SMTP_PORT == 465
-        mode_sequence = [(settings.SMTP_PORT, prefer_ssl)]
-        if settings.SMTP_PORT == 465:
-            mode_sequence.append((587, False))
+        fallback_ports = [settings.SMTP_PORT, 587, 465, 2525]
+        mode_sequence: list[tuple[int, bool]] = []
+        seen_ports: set[int] = set()
+        for port in fallback_ports:
+            if port in seen_ports:
+                continue
+            seen_ports.add(port)
+            mode_sequence.append((port, port == 465))
 
         for attempt in range(retries):
             for port, use_ssl in mode_sequence:
