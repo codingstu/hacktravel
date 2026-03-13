@@ -495,40 +495,21 @@ export function AuthScreen({ visible, onClose, initialMode = 'login', onSuccess 
                   </View>
                 )}
 
-                <View style={styles.inputGroup}>
-                  <View style={styles.labelRow}>
-                    <Text style={styles.inputLabel}>{emailLoginMode === 'code' ? 'Verification Code' : 'Password'}</Text>
-                    {mode === 'login' && (
-                      <TouchableOpacity
-                        onPress={() => {
-                          if (emailLoginMode === 'password') {
+                {(mode === 'register' || emailLoginMode === 'password') && (
+                  <View style={styles.inputGroup}>
+                    <View style={styles.labelRow}>
+                      <Text style={styles.inputLabel}>Password</Text>
+                      {mode === 'login' && emailLoginMode === 'password' && (
+                        <TouchableOpacity
+                          onPress={() => {
                             setEmailLoginMode('code');
                             setPassword('');
-                            return;
-                          }
-                          setEmailLoginMode('password');
-                          setEmailCode('');
-                        }}
-                      >
-                        <Text style={styles.forgotText}>
-                          {emailLoginMode === 'password' ? 'Forgot Password? Use Code' : 'Use Password'}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  {mode === 'login' && emailLoginMode === 'code' ? (
-                    <View style={styles.inputContainer}>
-                      <Ionicons name="key-outline" size={20} color={Colors.textLight} style={styles.inputIcon} />
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Enter verification code"
-                        placeholderTextColor={Colors.textLight}
-                        value={emailCode}
-                        onChangeText={setEmailCode}
-                        keyboardType="number-pad"
-                      />
+                          }}
+                        >
+                          <Text style={styles.forgotText}>Forgot Password? Use Code</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
-                  ) : (
                     <View style={styles.inputContainer}>
                       <Ionicons name="lock-closed-outline" size={20} color={Colors.textLight} style={styles.inputIcon} />
                       <TextInput
@@ -547,8 +528,8 @@ export function AuthScreen({ visible, onClose, initialMode = 'login', onSuccess 
                         />
                       </TouchableOpacity>
                     </View>
-                  )}
-                </View>
+                  </View>
+                )}
 
                 {/* 注册时显示确认密码 */}
                 {mode === 'register' && (
@@ -577,7 +558,19 @@ export function AuthScreen({ visible, onClose, initialMode = 'login', onSuccess 
 
                 {(mode === 'register' || emailLoginMode === 'code') && (
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Email Code</Text>
+                    <View style={styles.labelRow}>
+                      <Text style={styles.inputLabel}>{mode === 'login' ? 'Verification Code' : 'Email Code'}</Text>
+                      {mode === 'login' && emailLoginMode === 'code' && (
+                        <TouchableOpacity
+                          onPress={() => {
+                            setEmailLoginMode('password');
+                            setEmailCode('');
+                          }}
+                        >
+                          <Text style={styles.forgotText}>Use Password</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
                     <View style={styles.codeInputRow}>
                       <View style={[styles.inputContainer, styles.codeInput]}>
                         <Ionicons name="key-outline" size={20} color={Colors.textLight} style={styles.inputIcon} />
