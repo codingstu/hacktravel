@@ -187,6 +187,10 @@ async function fetchWithTimeout(
     if (__DEV__) {
       console.error(`[HackTravel API] fetch failed: ${url}`, err?.message);
     }
+    const isProdEndpoint = BASE_URL.startsWith('https://');
+    if (isProdEndpoint) {
+      throw new Error(`无法连接服务器 (${BASE_URL})，请检查域名解析、HTTPS 证书和后端服务状态`);
+    }
     throw new Error(`无法连接服务器 (${BASE_URL})，请确保后端已启动且手机与电脑在同一局域网`);
   } finally {
     clearTimeout(timer);

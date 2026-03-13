@@ -10,6 +10,7 @@ GET  /v1/auth/ai-usage  — 查询AI使用次数
 """
 from __future__ import annotations
 
+import logging
 from fastapi import APIRouter, Header, Query
 from typing import Optional
 
@@ -26,6 +27,7 @@ from app.models.auth import (
 from app.services.auth_service import auth_service
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/register", response_model=AuthResponse)
@@ -121,10 +123,15 @@ async def social_login(body: SocialLoginRequest) -> AuthResponse:
 @router.post("/send-code", response_model=SendCodeResponse)
 async def send_code(body: SendCodeRequest) -> SendCodeResponse:
     """发送手机验证码"""
-    if body.email:
-        await auth_service.send_email_code(body.email)
-    else:
-        await auth_service.send_sms_code(body.phone or "", body.country_code or "+86")
+    try:
+        if body.email:
+            await auth_service.send_email_code(body.email)
+        else:
+            await auth_service.send_sms_code(body.phone or "", body.country_code or "+86")
+    except Exception as exc:
+        from app.core.exceptions import HKTError
+        logger.exception("send-code failed: %s", exc)
+        raise HKTError(503, "HKT_503_AUTH_CODE_UNAVAILABLE", "验证码服务暂时不可用，请稍后重试")
     return SendCodeResponse(
         success=True,
         message="验证码已发送",

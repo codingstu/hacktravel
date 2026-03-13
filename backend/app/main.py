@@ -7,8 +7,9 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.middleware import RequestIDMiddleware
@@ -59,6 +60,21 @@ def create_app() -> FastAPI:
     app.include_router(places.router)
     app.include_router(watchlist.router)
     app.include_router(profile.router)
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception):
+        request_id = getattr(request.state, "request_id", None)
+        logger.exception("Unhandled exception: %s", exc)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": {
+                    "error_code": "HKT_500_INTERNAL",
+                    "message": "服务暂时不可用，请稍后重试",
+                    "request_id": request_id,
+                }
+            },
+        )
 
     return app
 
