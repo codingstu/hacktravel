@@ -168,3 +168,26 @@ Profile 的“已保存行程”需要点开查看真实 legs 时间轴，并支
 **备选方案:**
 - 列表直接返回完整 legs：实现简单但 payload 过大、列表渲染与网络成本高。
 - 详情完全实时重新生成：编辑一致性差且耗时高，不符合“收藏应可复现”的预期。
+
+---
+
+## 2026-03-15 — MiniMax-M2.5 置于 OpenAI 网关并紧随 Grok 主模型
+
+**状态:** accepted
+
+**背景:**
+原链路将 `MiniMax-M2.5` 放入 `https://grok.showqr.eu.cc/v1` 的主网关 fallback，和实际平台能力不一致。经确认：Grok 网关仅承载 grok 模型；MiniMax 与 gpt-5.2 属于 `https://openai.showqr.eu.cc/v1`。
+
+**决策:**
+- 主网关保持 `grok-4.1-fast`（不挂非 grok fallback）
+- 下一跳为 OpenAI 网关，顺序为 `MiniMax-M2.5 -> gpt-5.2`
+- 同步 `backend/.env.example` 与 `backend/.env.prod.example`，保证本地/生产模板一致
+- 增加 provider chain 顺序测试，锁定 `grok-4.1-fast -> MiniMax-M2.5 -> gpt-5.2`
+
+**影响:**
+- 正面：与真实网关能力一致，避免错误 fallback 导致请求失败；本地与生产配置模板一致。
+- 负面：若 MiniMax 出现波动，会更早触发到 gpt-5.2（可通过超时和日志监控观察）。
+
+**备选方案:**
+- `gpt-5.2 -> MiniMax-M2.5`：可行但不符合当前期望顺序。
+- 在 Grok 网关挂 MiniMax：与平台事实不符，拒绝采用。

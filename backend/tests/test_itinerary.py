@@ -10,7 +10,8 @@ from app.models.itinerary import (
     Place,
 )
 from app.utils.google_maps import build_google_maps_url, build_google_maps_urls
-from app.services.llm_gateway import extract_json
+from app.services.llm_gateway import extract_json, _build_provider_chain
+from app.core.config import settings
 from app.services.cache_service import CacheService
 from app.services.preset_routes import (
     find_preset,
@@ -113,6 +114,22 @@ def test_extract_json_brace_fallback():
 def test_extract_json_fails():
     with pytest.raises(ValueError):
         extract_json("no json here at all")
+
+
+def test_provider_chain_orders_grok_then_minimax_then_gpt52():
+    original_backup1_model = settings.LLM_BACKUP1_MODEL
+    original_fallback_models = settings.LLM_BACKUP1_FALLBACK_MODELS
+    try:
+        settings.LLM_BACKUP1_MODEL = "MiniMax-M2.5"
+        settings.LLM_BACKUP1_FALLBACK_MODELS = "gpt-5.2"
+        chain = _build_provider_chain()
+        models = [provider.model for provider in chain]
+        grok_fast_index = models.index("grok-4.1-fast")
+        assert models[grok_fast_index + 1] == "MiniMax-M2.5"
+        assert models[grok_fast_index + 2] == "gpt-5.2"
+    finally:
+        settings.LLM_BACKUP1_MODEL = original_backup1_model
+        settings.LLM_BACKUP1_FALLBACK_MODELS = original_fallback_models
 
 
 # ── Cache service hash tests ────────────────────────────

@@ -1,9 +1,9 @@
 """LLM Gateway – multi-provider routing with provider/model-level degradation.
 
 Optimized degradation chain:
-  1. ShowQR Grok gateway (primary): grok-4.1-fast → grok-4.1-thinking
-  2. ShowQR OpenAI gateway (backup): gpt-5.2
-  3. SiliconFlow (保底): Qwen2.5-72B-Instruct → DeepSeek-V3 → DeepSeek-R1
+        1. ShowQR Grok gateway (primary): grok-4.1-fast
+    2. ShowQR OpenAI gateway (backup): MiniMax-M2.5 → gpt-5.2
+    3. SiliconFlow (保底): Qwen/Qwen2.5-7B-Instruct
 
 Smart skip: if a gateway is UNREACHABLE (ConnectTimeout/ConnectError), skip all
 remaining models on that gateway. ReadTimeout does NOT trigger gateway skip
@@ -99,9 +99,9 @@ def _build_provider_chain() -> list[LLMProviderConfig]:
     """Build ordered provider list with provider/model degradation.
 
     Strategy:
-    1. ShowQR primary: fast models (DeepSeek-V3.1, Qwen3, etc.)
-    2. Backup1: SiliconFlow 保底 (Qwen, DeepSeek)
-    3. Backup2: NVIDIA NIM (last resort)
+    1. Primary gateway: grok-4.1-fast
+    2. Backup1 gateway: MiniMax-M2.5 with model-level fallback
+    3. Backup2 gateway: SiliconFlow model
     Provider names are auto-derived from the base URL domain.
     """
     chain: list[LLMProviderConfig] = []

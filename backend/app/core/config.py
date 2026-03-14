@@ -41,22 +41,22 @@ class Settings(BaseSettings):
     CACHE_TTL_COLD: int = 259200  # 3 days for cold destinations
 
     # ── LLM Providers ────────────────────────────────────
-    # Primary: ShowQR Grok gateway — prefer grok-4.1-fast only (fast model)
+    # Primary: ShowQR Grok gateway — only grok models on this gateway
     LLM_PRIMARY_BASE_URL: str = "https://grok.showqr.eu.cc/v1"
     LLM_PRIMARY_API_KEY: str = ""
     LLM_PRIMARY_MODEL: str = "grok-4.1-fast"
-    LLM_PRIMARY_FALLBACK_MODELS: str = ""  # 移除 thinking 兜底，太慢
+    LLM_PRIMARY_FALLBACK_MODELS: str = ""  # grok 网关下仅放 grok 模型
     LLM_PRIMARY_TIMEOUT: int = 15  # 15s: fast 模型不应该这么慢
     LLM_PRIMARY_REASONING_EFFORT: str = ""
     LLM_PRIMARY_MAX_COMPLETION_TOKENS: int = 0
     LLM_PRIMARY_MAX_LEGS: int = 6
     LLM_PRIMARY_MAX_TIPS_PER_LEG: int = 1
 
-    # First backup: ShowQR OpenAI gateway — gpt-5.2 fallback
+    # First backup: ShowQR OpenAI gateway — MiniMax-M2.5 then gpt-5.2
     LLM_BACKUP1_BASE_URL: str = "https://openai.showqr.eu.cc/v1"
     LLM_BACKUP1_API_KEY: str = ""
-    LLM_BACKUP1_MODEL: str = "gpt-5.2"
-    LLM_BACKUP1_FALLBACK_MODELS: str = ""
+    LLM_BACKUP1_MODEL: str = "MiniMax-M2.5"
+    LLM_BACKUP1_FALLBACK_MODELS: str = "gpt-5.2"
     LLM_BACKUP1_TIMEOUT: int = 15  # 15s
 
     # Second backup: SiliconFlow (保底 — reliable domestic provider)
