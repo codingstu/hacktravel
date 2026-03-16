@@ -29,6 +29,7 @@
 - [x] 认证体验修复（退出后回到登录态、登录页验证码登录直达、Web 输入框蓝框与可点击区域优化）
 - [x] 登录页验证码模式渲染修复（去除重复验证码输入框，单验证码登录交互一致）
 - [x] LLM 回退顺序校正（grok-4.1-fast → MiniMax-M2.5 → gpt-5.2）并同步生产 env 模板
+- [x] 默认 LLM 链路调整（gpt-5.2 → minimax/minimax-m2.5:free → grok-4.20-beta → deepseek-ai/DeepSeek-V3.2 → Qwen/Qwen3-8B）
 
 ## 进行中
 

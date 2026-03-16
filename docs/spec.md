@@ -41,7 +41,7 @@
 ## 约束条件
 
 - 匿名优先可用，登录入口默认关闭
-- 主 AI 模型为 Codex 5.4，备路由为硅基流动、NVIDIA NIM
+- 主 AI 模型为 gpt-5.2，后续回退为 minimax/minimax-m2.5:free → grok-4.20-beta → deepseek-ai/DeepSeek-V3.2 → Qwen/Qwen3-8B
 - 主备全失败时回退缓存路线
 - 行程字段经 Pydantic 严格校验与归一化
 - 错误码前缀 `HKT`

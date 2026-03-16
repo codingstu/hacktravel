@@ -47,12 +47,14 @@
 
 ### 2.4 模型路由
 
-- 主：Codex 5.4 通过 OpenAI 兼容网关
-- 备 1：硅基流动
-- 备 2：NVIDIA NIM
+- 主：ShowQR OpenAI 网关 `gpt-5.2`
+- 主网关模型级降级：`minimax/minimax-m2.5:free`
+- 备 1：ShowQR Grok 网关 `grok-4.20-beta`
+- 备 2：硅基流动 `deepseek-ai/DeepSeek-V3.2`
+- 备 2 模型级降级：`Qwen/Qwen3-8B`
 - 自动切换策略：
   - 触发条件：超时、5xx、网关连接异常
-  - 切换顺序：主 -> 备1 -> 备2
+  - 切换顺序：主(含模型级降级) -> 备1 -> 备2(含模型级降级)
   - 全失败则回退缓存路线
 
 ## 3. API 与数据契约
@@ -104,7 +106,7 @@ POST /v1/itineraries/generate
   - google_maps_deeplink: string
   - waypoints_count: integer
 - source:
-  - llm_provider: codex54 | siliconflow | nvidia
+  - llm_provider: openai | grok | siliconflow | preset
   - model_name: string
   - cache_hit: boolean
 - policy:
@@ -359,15 +361,19 @@ flowchart TD
 A[用户输入参数] --> B[FastAPI 接口校验]
 B --> C[缓存查询]
 C -->|命中| D[返回路线]
-C -->|未命中| E[LLM 网关主路由 Codex54]
-E -->|超时或5xx| F[切换硅基流动]
-F -->|超时或5xx| G[切换 NVIDIA NIM]
-G -->|成功| H[Pydantic 校验]
+C -->|未命中| E[LLM 网关主路由 gpt-5.2]
+E -->|超时或5xx| F[主网关模型级降级 MiniMax-M2.5 free]
+F -->|超时或5xx| G[切换 Grok 网关 grok-4.20-beta]
+G -->|超时或5xx| N[切换硅基流动 DeepSeek-V3.2]
+N -->|超时或5xx| O[硅基流动模型级降级 Qwen3-8B]
+O -->|成功| H[Pydantic 校验]
+N -->|成功| H
+G -->|成功| H
 F -->|成功| H
 E -->|成功| H
 H -->|通过| I[写入PostgreSQL与Redis]
 I --> D
-G -->|失败| J[读取历史缓存回退]
+O -->|失败| J[读取历史缓存回退]
 J -->|命中| D
 J -->|未命中| K[返回可恢复错误]
 D --> L[前端时间轴渲染]
@@ -382,7 +388,7 @@ L --> M[一键导入 Google Maps]
 - ENABLE_WATCHLIST_LEAD_CAPTURE=true
 - ENABLE_ADMIN_REVIEW=false
 
-该蓝图已按你确认的策略固化：匿名优先、主模型 Codex 5.4、多供应商自动容灾、失败回缓存。
+该蓝图已按你确认的策略固化：匿名优先、主模型 gpt-5.2、多供应商自动容灾、失败回缓存。
 
 ## 16. Token 成本优化策略
 

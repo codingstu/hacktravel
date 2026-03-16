@@ -116,20 +116,33 @@ def test_extract_json_fails():
         extract_json("no json here at all")
 
 
-def test_provider_chain_orders_grok_then_minimax_then_gpt52():
+def test_provider_chain_orders_gpt_then_minimax_then_grok_then_siliconflow_fallbacks():
+    original_primary_model = settings.LLM_PRIMARY_MODEL
+    original_primary_fallback_models = settings.LLM_PRIMARY_FALLBACK_MODELS
     original_backup1_model = settings.LLM_BACKUP1_MODEL
-    original_fallback_models = settings.LLM_BACKUP1_FALLBACK_MODELS
+    original_backup2_model = settings.LLM_BACKUP2_MODEL
+    original_backup2_fallback_models = settings.LLM_BACKUP2_FALLBACK_MODELS
     try:
-        settings.LLM_BACKUP1_MODEL = "MiniMax-M2.5"
-        settings.LLM_BACKUP1_FALLBACK_MODELS = "gpt-5.2"
+        settings.LLM_PRIMARY_MODEL = "gpt-5.2"
+        settings.LLM_PRIMARY_FALLBACK_MODELS = "minimax/minimax-m2.5:free"
+        settings.LLM_BACKUP1_MODEL = "grok-4.20-beta"
+        settings.LLM_BACKUP2_MODEL = "deepseek-ai/DeepSeek-V3.2"
+        settings.LLM_BACKUP2_FALLBACK_MODELS = "Qwen/Qwen3-8B"
         chain = _build_provider_chain()
         models = [provider.model for provider in chain]
-        grok_fast_index = models.index("grok-4.1-fast")
-        assert models[grok_fast_index + 1] == "MiniMax-M2.5"
-        assert models[grok_fast_index + 2] == "gpt-5.2"
+        assert models[:5] == [
+            "gpt-5.2",
+            "minimax/minimax-m2.5:free",
+            "grok-4.20-beta",
+            "deepseek-ai/DeepSeek-V3.2",
+            "Qwen/Qwen3-8B",
+        ]
     finally:
+        settings.LLM_PRIMARY_MODEL = original_primary_model
+        settings.LLM_PRIMARY_FALLBACK_MODELS = original_primary_fallback_models
         settings.LLM_BACKUP1_MODEL = original_backup1_model
-        settings.LLM_BACKUP1_FALLBACK_MODELS = original_fallback_models
+        settings.LLM_BACKUP2_MODEL = original_backup2_model
+        settings.LLM_BACKUP2_FALLBACK_MODELS = original_backup2_fallback_models
 
 
 # ── Cache service hash tests ────────────────────────────

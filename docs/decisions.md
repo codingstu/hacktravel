@@ -191,3 +191,32 @@ Profile 的“已保存行程”需要点开查看真实 legs 时间轴，并支
 **备选方案:**
 - `gpt-5.2 -> MiniMax-M2.5`：可行但不符合当前期望顺序。
 - 在 Grok 网关挂 MiniMax：与平台事实不符，拒绝采用。
+
+---
+
+## 2026-03-16 — 默认 LLM 链路调整为 gpt-5.2 优先并扩展硅基流动双模型降级
+
+**状态:** accepted
+
+**背景:**
+在生产可用性排查中，需要将默认首选模型调整为 `gpt-5.2`，并在同网关保留 `minimax/minimax-m2.5:free` 作为模型级降级；同时将 Grok 作为下一跳，再由硅基流动承接深度兜底。经网关鉴权后在线探测（`/v1/models`）确认以下模型 ID 可用：
+- OpenAI ShowQR：`gpt-5.2`、`minimax/minimax-m2.5:free`
+- Grok ShowQR：`grok-4.20-beta`
+- SiliconFlow：`deepseek-ai/DeepSeek-V3.2`、`Qwen/Qwen3-8B`
+
+**决策:**
+- 默认链路改为：
+	`gpt-5.2 -> minimax/minimax-m2.5:free -> grok-4.20-beta -> deepseek-ai/DeepSeek-V3.2 -> Qwen/Qwen3-8B`
+- 同步更新：
+	- `backend/.env`（本地运行配置）
+	- `backend/.env.example`、`backend/.env.prod.example`（模板）
+	- `backend/app/core/config.py`（默认值）
+	- `backend/tests/test_itinerary.py`（provider chain 顺序断言）
+
+**影响:**
+- 正面：首选模型能力对齐当前策略，且保留多层网关/模型级降级韧性。
+- 负面：链路长度增加，若总超时维持 30s，深层降级触发概率受限，需要持续观察超时与切换日志。
+
+**备选方案:**
+- 维持 `grok-4.1-fast -> MiniMax-M2.5 -> gpt-5.2`：不满足本次业务优先级。
+- 引入并发抢答：成本和限流风险更高，本次不采用。
